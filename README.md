@@ -1,11 +1,12 @@
 # InsightAgent
 
-InsightAgent 是一个面向竞品调研和公开资料分析的多 Agent 系统。用户输入赛道、竞品和分析维度后，系统会自动规划调研任务、搜索公开信息、抓取网页、抽取证据、生成分析结论，并输出带 `evidence_id` 引用的 Markdown 报告。
+InsightAgent 是一个面向竞品调研和公开资料分析的多 Agent 系统。用户输入赛道、竞品和分析维度后，系统会自动规划调研任务、搜索公开信息、抓取网页、抽取证据、生成分析结论，并在前端输出可阅读的调研文档、维度覆盖雷达图和质量数据。
 
 ## 项目亮点
 
 - 多 Agent 协作：Planner、Researcher、Analyst、Writer、Critic 分工明确，职责边界清晰。
-- 证据链驱动：搜索、抓取、抽取结果都会进入结构化证据模型，报告结论可回溯到来源。
+- 证据链驱动：搜索、抓取、抽取结果进入结构化证据模型，报告结论可回溯到 `evidence_id`。
+- 可视化结果输出：每次调研完成后，前端会展示 Markdown 调研文档、文档下载按钮、维度证据覆盖雷达图和质量指标。
 - LangGraph 工作流：用状态图组织调研、充分性检查、分析、写作和质检流程。
 - DeepSeek 运行时守卫：业务运行时只接受白名单内的 DeepSeek 模型，避免配置误接入其他模型。
 - 稳定性设计：搜索、网页抓取、证据抽取支持缓存；抓取失败会短缓存；服务重启后会处理未完成任务状态。
@@ -142,6 +143,12 @@ LLM_FALLBACK_MODEL=deepseek-v4-flash
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
+如果 Windows 环境下 `--reload` 触发权限问题，可以去掉 `--reload`：
+
+```bash
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
 后端地址：
 
 - API 文档：http://127.0.0.1:8000/docs
@@ -173,6 +180,14 @@ Linux / macOS：
 ```bash
 INSIGHT_API_BASE=http://127.0.0.1:你的端口 streamlit run frontend/streamlit_app.py --server.port=8501
 ```
+
+## 结果输出
+
+每次任务完成后，前端会输出三类结果：
+
+- 调研文档：直接展示 Markdown 报告，并支持下载为 `.md` 文件。
+- 雷达图：基于 `quality_metrics.coverage` 展示各维度证据覆盖情况。
+- 质量数据：展示覆盖率、缺失维度、质检问题和运行问题，便于复盘。
 
 ## 部署方式
 
@@ -266,6 +281,16 @@ curl http://127.0.0.1:8000/api/tasks/{task_id}/report
 - 搜索质量依赖外部搜索 Provider。
 - LLM 输出质量受模型稳定性和网页文本质量影响。
 - Critic 当前以规则检查为主，LLM Critic 默认关闭。
+
+## 更新日志
+
+### 2026-05-03
+
+- 新增前端调研结果输出：Markdown 文档预览、Markdown 下载、维度证据覆盖雷达图、质量数据面板。
+- 修复 Streamlit 前端中文乱码，优化任务状态、输入框和结果展示文案。
+- 修复 Writer 兜底报告中文乱码，保证 LLM 调用失败时仍能输出可读报告。
+- 统一 DeepSeek 运行时配置，移除旧模型平台相关运行时代码和说明。
+- 优化 README 的 Windows 本地部署说明，明确 Docker 为可选部署方式。
 
 ## 重要文档
 
