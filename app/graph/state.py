@@ -20,6 +20,7 @@ class WorkflowState(TypedDict, total=False):
     critic_issues: list[dict[str, Any]]
     current_stage: str
     iteration_count: int
+    critic_rounds: int
     max_iterations: int
     sufficiency_threshold: float
     issues: list[str]

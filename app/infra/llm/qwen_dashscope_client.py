@@ -93,8 +93,9 @@ class QwenDashScopeClient(LLMClient):
         timeout: float,
     ) -> T:
         errors: list[str] = []
+        json_prompt = self._schema_prompt(prompt, schema)
         content = await self._complete(
-            prompt=prompt,
+            prompt=json_prompt,
             model_role=model_role,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -106,9 +107,8 @@ class QwenDashScopeClient(LLMClient):
             return parsed
         errors.append(content[:200])
 
-        strong_prompt = self._schema_prompt(prompt, schema)
         content = await self._complete(
-            prompt=strong_prompt,
+            prompt=json_prompt,
             model_role=model_role,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -154,7 +154,7 @@ class QwenDashScopeClient(LLMClient):
         schema_json = json.dumps(schema.model_json_schema(), ensure_ascii=False)
         return (
             f"{prompt}\n\n"
-            "Return only valid JSON matching this JSON Schema. "
+            "Return only a valid json object matching this JSON Schema. "
             "Do not include markdown or commentary.\n"
             f"{schema_json}"
         )

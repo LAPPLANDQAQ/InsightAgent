@@ -62,12 +62,13 @@ async def test_qwen_client_uses_model_role_mapping():
 async def test_qwen_client_parses_response_format_json():
     fake = FakeOpenAIClient(['{"name": "Ada", "age": 36}'])
     result = await _client(fake).invoke(
-        prompt="JSON",
+        prompt="Return a person",
         model_role="heavy",
         schema=DemoOutput,
     )
     assert result.name == "Ada"
     assert fake.completions.calls[0]["response_format"] == {"type": "json_object"}
+    assert "json" in fake.completions.calls[0]["messages"][0]["content"].lower()
 
 
 @pytest.mark.asyncio

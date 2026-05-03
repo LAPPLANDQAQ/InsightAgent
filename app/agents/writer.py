@@ -33,9 +33,9 @@ class Writer(AgentBase):
             )
         except Exception as exc:
             report = self._fallback_report(state)
-            issues = [*state.get("issues", []), f"writer_fallback: {exc}"]
+            issues = [f"writer_fallback: {exc}"]
         else:
-            issues = list(state.get("issues", []))
+            issues = []
         return {
             "draft_report": str(report),
             "final_report": str(report),

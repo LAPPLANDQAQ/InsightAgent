@@ -21,5 +21,7 @@ class TaskStatusResponse(BaseModel):
     task_id: str
     status: TaskStatus
     current_stage: str | None = None
+    stage_label: str | None = None
     progress: float = 0.0
+    estimated_remaining_seconds: int | None = None
     issues: list[str] = Field(default_factory=list)

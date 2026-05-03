@@ -41,9 +41,10 @@ class Planner(AgentBase):
             )
         except Exception as exc:
             plan = self._fallback_plan(query, competitors, dimensions)
-            issues = [*state.get("issues", []), f"planner_fallback: {exc}"]
+            issues = [f"planner_fallback: {exc}"]
         else:
-            issues = list(state.get("issues", []))
+            assert not isinstance(plan, str)
+            issues = []
         return {
             "plan": plan.model_dump(),
             "competitors": [

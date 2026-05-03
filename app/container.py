@@ -10,6 +10,7 @@ from app.infra.cache.memory_cache import MemoryCache
 from app.infra.cache.sqlite_cache import SQLiteCache
 from app.infra.fetch.httpx_client import HttpxFetchClient
 from app.infra.llm.qwen_dashscope_client import QwenDashScopeClient
+from app.infra.search.base import SearchProvider
 from app.infra.search.duckduckgo import DuckDuckGoProvider
 from app.infra.search.service import SearchService
 from app.infra.search.tavily import TavilyProvider
@@ -41,7 +42,7 @@ class Container:
         self.fetch_client = HttpxFetchClient(self.cache)
         self.search_tool = SearchTool(self.search_service)
         self.webpage_tool = WebpageTool(self.fetch_client)
-        self.extraction_tool = ExtractionTool(self.llm)
+        self.extraction_tool = ExtractionTool(self.llm, self.cache)
         self.classifier_tool = SourceClassifierTool()
         self.sufficiency_tool = SufficiencyTool()
         self.planner = Planner(self.llm)
@@ -58,8 +59,8 @@ class Container:
         self.writer = Writer(self.llm)
         self.critic = Critic(self.llm, settings.enable_llm_critic)
 
-    def _search_providers(self) -> list:
-        providers = []
+    def _search_providers(self) -> list[SearchProvider]:
+        providers: list[SearchProvider] = []
         for name in self.settings.search_providers.split(","):
             normalized = name.strip().lower()
             if normalized == "tavily" and self.settings.tavily_api_key:

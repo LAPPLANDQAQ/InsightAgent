@@ -58,7 +58,9 @@ async def get_task(task_id: str, svc: TaskServiceDep) -> TaskStatusResponse:
         task_id=task_id,
         status=info["status"],
         current_stage=info.get("stage"),
-        progress=0.0,
+        stage_label=info.get("stage_label"),
+        progress=float(info.get("progress", 0.0)),
+        estimated_remaining_seconds=info.get("estimated_remaining_seconds"),
         issues=[str(item) for item in info.get("issues", [])],
     )
 

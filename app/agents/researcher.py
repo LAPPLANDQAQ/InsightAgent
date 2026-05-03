@@ -48,7 +48,7 @@ class Researcher(AgentBase):
         """
         plan = state.get("plan") or {}
         task_id = str(state.get("task_id", "task"))
-        issues = list(state.get("issues", []))
+        issues: list[str] = []
         competitors = []
         for name in plan.get("competitors", []):
             item, item_issues = await self._research_competitor(task_id, name, plan)
@@ -93,11 +93,18 @@ class Researcher(AgentBase):
                 )
                 sources.append(source)
                 page = await self.webpage_tool.run(result.url)
+                if page.page.error:
+                    issues.append(f"fetch_failed:{competitor_name}:{result.url}:{page.page.error}")
+                    continue
+                if not page.page.text.strip():
+                    issues.append(f"fetch_empty:{competitor_name}:{result.url}")
+                    continue
                 for dimension in plan.get("dimensions", []):
-                    evidence = await self._extract_or_fallback(
+                    evidence, extract_issues = await self._extract_or_fallback(
                         task_id, competitor_name, dimension, source, page.page.text, index
                     )
                     evidences.extend(evidence)
+                    issues.extend(extract_issues)
         return {
             "name": competitor_name,
             "sources": [source.model_dump() for source in sources],
@@ -112,7 +119,7 @@ class Researcher(AgentBase):
         source: SourceItem,
         text: str,
         index: int,
-    ) -> list[EvidenceItem]:
+    ) -> tuple[list[EvidenceItem], list[str]]:
         try:
             result = await self.extraction_tool.run(
                 task_id=task_id,
@@ -120,14 +127,31 @@ class Researcher(AgentBase):
                 dimension=dimension,
                 source_id=source.source_id,
                 source_url=source.url,
-                text=text[:2000],
+                text=text,
                 max_evidence=2,
             )
             if result.evidences:
-                return result.evidences
-        except Exception:
-            pass
-        return [self._fallback_evidence(task_id, competitor_name, dimension, source, text, index)]
+                return result.evidences, []
+        except Exception as exc:
+            issue = f"extract_failed:{competitor_name}:{dimension}:{source.url}:{exc}"
+            fallback = self._fallback_evidence(
+                task_id,
+                competitor_name,
+                dimension,
+                source,
+                text,
+                index,
+            )
+            return [fallback], [issue]
+        fallback = self._fallback_evidence(
+            task_id,
+            competitor_name,
+            dimension,
+            source,
+            text,
+            index,
+        )
+        return [fallback], [f"extract_empty:{competitor_name}:{dimension}:{source.url}"]
 
     @staticmethod
     def _fallback_evidence(
@@ -139,8 +163,10 @@ class Researcher(AgentBase):
         index: int,
     ) -> EvidenceItem:
         snippet = " ".join(text.split())[:180] or f"{competitor_name} public information"
+        safe_source = source.source_id.replace(" ", "_")
+        safe_dimension = dimension.replace(" ", "_")
         return EvidenceItem(
-            evidence_id=f"ev_{competitor_name}_{dimension}_{index}".replace(" ", "_"),
+            evidence_id=f"ev_{safe_source}_{safe_dimension}_{index}".replace(" ", "_"),
             task_id=task_id,
             competitor_name=competitor_name,
             dimension=dimension,

@@ -1,10 +1,21 @@
 """Critic agent."""
 
-from typing import Any
+from typing import Any, Literal
 
 from app.agents.base import AgentBase
 from app.infra.llm.base import LLMClient
 from app.schemas.critic import CriticIssue
+
+IssueType = Literal[
+    "missing_evidence",
+    "invalid_evidence_ref",
+    "dimension_missing",
+    "unsupported_claim",
+    "weak_source",
+    "format_error",
+    "logic_gap",
+]
+TargetStage = Literal["researcher", "analyst", "writer"]
 
 
 class Critic(AgentBase):
@@ -29,8 +40,10 @@ class Critic(AgentBase):
         status = "COMPLETED_WITH_WARNINGS" if issues or state.get("issues") else "COMPLETED"
         return {
             "critic_issues": [issue.model_dump() for issue in issues],
+            "issues": [issue.message for issue in issues],
             "task_status": status,
             "current_stage": self.name,
+            "critic_rounds": int(state.get("critic_rounds", 0)) + 1,
         }
 
     def _rule_issues(self, state: dict[str, Any]) -> list[CriticIssue]:
@@ -59,7 +72,7 @@ class Critic(AgentBase):
         return issues
 
     @staticmethod
-    def _issue(issue_type: str, target_stage: str, message: str) -> CriticIssue:
+    def _issue(issue_type: IssueType, target_stage: TargetStage, message: str) -> CriticIssue:
         return CriticIssue(
             issue_type=issue_type,
             severity="medium",

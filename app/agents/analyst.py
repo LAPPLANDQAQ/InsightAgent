@@ -42,9 +42,10 @@ class Analyst(AgentBase):
             )
         except Exception as exc:
             analysis = self._fallback_analysis(plan, evidences)
-            issues = [*state.get("issues", []), f"analyst_fallback: {exc}"]
+            issues = [f"analyst_fallback: {exc}"]
         else:
-            issues = list(state.get("issues", []))
+            assert not isinstance(analysis, str)
+            issues = []
         return {"analysis": analysis.model_dump(), "current_stage": self.name, "issues": issues}
 
     @staticmethod
