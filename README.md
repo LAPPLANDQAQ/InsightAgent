@@ -7,7 +7,7 @@ InsightAgent 是一个面向竞品调研的多 Agent 分析系统。用户输入
 - 多 Agent 协作：Planner、Researcher、Analyst、Writer、Critic 分工明确。
 - 证据驱动：搜索、抓取、抽取结果进入结构化证据模型，报告结论引用 `evidence_id`。
 - LangGraph 工作流：使用 `StateGraph` 组织调研、充分性检查、分析、写作和质检节点。
-- 千问运行时守卫：业务 LLM 只允许 Qwen/QwQ 系列模型，真实模型名集中在配置层。
+- Provider 模型守卫：支持 DeepSeek 与千问，真实模型名集中在配置层并按 provider 校验。
 - 稳定性设计：搜索、抓取、抽取均支持缓存；抓取失败短缓存；服务重启后会处理僵死任务。
 - 可验证边界：架构测试限制跨层导入、外部 SDK 使用、文件大小、公共函数 docstring。
 - 前后端完整：FastAPI 提供任务接口，Streamlit 提供可视化操作界面。
@@ -21,7 +21,7 @@ InsightAgent 是一个面向竞品调研的多 Agent 分析系统。用户输入
 - SQLAlchemy 2.x
 - Streamlit
 - HTTPX
-- DashScope OpenAI-compatible Qwen API
+- DeepSeek / DashScope OpenAI-compatible API
 - SQLite cache / SQLite task DB
 
 ## 架构
@@ -33,7 +33,7 @@ api -> services -> graph -> agents -> tools -> infra
 关键约束：
 
 - `agents/` 不直接导入外部 SDK，也不导入 infra 实现类。
-- OpenAI SDK 只允许在 `app/infra/llm/qwen_dashscope_client.py` 中作为 DashScope 兼容传输层使用。
+- OpenAI SDK 只作为 OpenAI-compatible 传输层使用，业务代码不直接依赖具体厂商 SDK。
 - 业务代码只使用 `model_role`，不硬编码真实模型名。
 - `tools/` 之间不互相调用，`app.tools.dedup` 纯函数除外。
 
@@ -117,20 +117,22 @@ Linux / macOS：
 cp .env.example .env
 ```
 
-打开 `.env`，至少配置：
+打开 `.env`，默认配置为 DeepSeek，至少填写：
 
 ```bash
-DASHSCOPE_API_KEY=你的千问DashScope密钥
-LLM_HEAVY_MODEL=qwen-max
-LLM_LIGHT_MODEL=qwen-turbo
-LLM_FALLBACK_MODEL=qwen-plus
+LLM_PROVIDER=deepseek
+LLM_BASE_URL=https://api.deepseek.com
+DEEPSEEK_API_KEY=你的DeepSeek密钥
+LLM_HEAVY_MODEL=deepseek-v4-pro
+LLM_LIGHT_MODEL=deepseek-v4-flash
+LLM_FALLBACK_MODEL=deepseek-v4-flash
 ```
 
 说明：
 
 - `TAVILY_API_KEY` 可留空，系统会跳过 Tavily，使用 DuckDuckGo。
 - `.env` 包含密钥，不要提交到 Git。
-- 业务运行时不要把模型改成 GPT、Claude、DeepSeek 等非千问模型。
+- 如果要切回千问，把 `LLM_PROVIDER` 改成 `qwen_dashscope`，`LLM_BASE_URL` 改成 `https://dashscope.aliyuncs.com/compatible-mode/v1`，填写 `DASHSCOPE_API_KEY`，并把模型名改成 `qwen-max`、`qwen-turbo`、`qwen-plus` 等千问模型。
 
 ## 本地运行
 

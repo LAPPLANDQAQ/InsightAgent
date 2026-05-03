@@ -2,7 +2,13 @@
 
 import pytest
 
-from app.config import QWEN_MODEL_WHITELIST, Settings, is_qwen_model_name
+from app.config import (
+    DEEPSEEK_MODEL_WHITELIST,
+    QWEN_MODEL_WHITELIST,
+    Settings,
+    is_deepseek_model_name,
+    is_qwen_model_name,
+)
 
 
 @pytest.fixture
@@ -10,7 +16,7 @@ def base_env(monkeypatch):
     monkeypatch.setenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
     monkeypatch.setenv("DASHSCOPE_API_KEY", "fake_key")
     monkeypatch.setenv("LLM_PROVIDER", "qwen_dashscope")
-    monkeypatch.setenv("ENFORCE_QWEN_ONLY", "true")
+    monkeypatch.setenv("ENFORCE_PROVIDER_MODEL_GUARD", "true")
 
 
 def test_settings_reject_gpt(base_env, monkeypatch):
@@ -58,3 +64,31 @@ def test_whitelist_completeness():
     assert "qwen-turbo" in QWEN_MODEL_WHITELIST
     assert "qwen-plus" in QWEN_MODEL_WHITELIST
     assert is_qwen_model_name("qwen-max-latest")
+
+
+def test_settings_accept_deepseek(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "fake_key")
+    monkeypatch.setenv("LLM_HEAVY_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_LIGHT_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "deepseek-v4-flash")
+    settings = Settings()
+    assert settings.llm_api_key == "fake_key"
+    assert settings.llm_light_model == "deepseek-v4-flash"
+
+
+def test_settings_reject_qwen_under_deepseek_provider(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("LLM_HEAVY_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_LIGHT_MODEL", "qwen-turbo")
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "deepseek-v4-flash")
+    with pytest.raises(Exception, match="DeepSeek"):
+        Settings()
+
+
+def test_deepseek_whitelist_completeness():
+    assert "deepseek-v4-flash" in DEEPSEEK_MODEL_WHITELIST
+    assert "deepseek-v4-pro" in DEEPSEEK_MODEL_WHITELIST
+    assert is_deepseek_model_name("deepseek-v4-flash")
