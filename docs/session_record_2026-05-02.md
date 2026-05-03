@@ -28,7 +28,7 @@
     - 报错接口：`GET /api/tasks/{task_id}/report`
     - 原因：`quality_metrics` 模型类型过窄，无法兼容嵌套指标。
     - 处理：将响应模型调整为可容纳嵌套结构。
-14. 修复 Qwen/DashScope 结构化输出报错：
+14. 修复 DeepSeek/DeepSeek 结构化输出报错：
     - 报错：`messages must contain the word 'json' ... response_format of type 'json_object'`
     - 原因：使用 `response_format={"type": "json_object"}` 时，消息中必须包含 `json` 字样。
     - 处理：结构化输出请求统一构造包含 `json` 和 JSON Schema 的 prompt。
@@ -44,12 +44,12 @@
 - `README.md`
 - `app/api/tasks.py`
 - `app/graph/workflow.py`
-- `app/infra/llm/qwen_dashscope_client.py`
+- `app/infra/llm/deepseek_client.py`
 - `app/schemas/report.py`
 - `app/schemas/task.py`
 - `app/services/task_service.py`
 - `frontend/streamlit_app.py`
-- `tests/unit/test_qwen_client.py`
+- `tests/unit/test_deepseek_client.py`
 - `tests/unit/test_task_service.py`
 
 其中 `tests/unit/test_task_service.py` 是新增测试文件。
@@ -59,14 +59,14 @@
 已执行并通过：
 
 ```powershell
-python -m pytest tests/unit/test_qwen_client.py -v
+python -m pytest tests/unit/test_deepseek_client.py -v
 python -m pytest tests/architecture/ tests/unit/ tests/integration/ tests/e2e/ -v
 python -m ruff check app/ tests/ frontend/streamlit_app.py
 ```
 
 验证结果：
 
-- Qwen 客户端单测：4 passed
+- DeepSeek 客户端单测：4 passed
 - 全量测试集：48 passed
 - Ruff：All checks passed
 

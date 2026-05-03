@@ -1,9 +1,9 @@
-"""Runtime settings and provider model guards."""
+"""Runtime settings and DeepSeek model guards."""
 
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,37 +11,6 @@ class ConfigError(ValueError):
     """Raised when runtime configuration is invalid."""
 
 
-QWEN_MODEL_WHITELIST = frozenset(
-    {
-        "qwen-max",
-        "qwen-plus",
-        "qwen-turbo",
-        "qwen-long",
-        "qwen-flash",
-        "qwen-max-latest",
-        "qwen-plus-latest",
-        "qwen-turbo-latest",
-        "qwen-long-latest",
-        "qwen3-max",
-        "qwen3.5-plus",
-        "qwen3.5-flash",
-        "qwq-plus",
-    }
-)
-FORBIDDEN_MODEL_KEYWORDS = (
-    "gpt",
-    "claude",
-    "deepseek",
-    "kimi",
-    "moonshot",
-    "glm",
-    "yi",
-    "llama",
-    "ollama",
-    "local",
-    "mistral",
-    "gemini",
-)
 DEEPSEEK_MODEL_WHITELIST = frozenset(
     {
         "deepseek-v4-flash",
@@ -50,25 +19,7 @@ DEEPSEEK_MODEL_WHITELIST = frozenset(
         "deepseek-reasoner",
     }
 )
-QWEN_DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com"
-
-
-def is_qwen_model_name(name: str) -> bool:
-    """Return whether a model name is allowed for runtime LLM usage.
-
-    Args:
-        name: Raw model name from configuration.
-
-    Returns:
-        True when the name is a Qwen or QwQ runtime model.
-    """
-    normalized = name.strip().lower()
-    if not normalized:
-        return False
-    if any(keyword in normalized for keyword in FORBIDDEN_MODEL_KEYWORDS):
-        return False
-    return normalized in QWEN_MODEL_WHITELIST or normalized.startswith(("qwen", "qwq"))
 
 
 def is_deepseek_model_name(name: str) -> bool:
@@ -96,17 +47,13 @@ class Settings(BaseSettings):
     app_env: Literal["dev", "prod", "test"] = "dev"
     log_level: str = "INFO"
 
-    llm_provider: Literal["qwen_dashscope", "deepseek"] = "deepseek"
+    llm_provider: Literal["deepseek"] = "deepseek"
     llm_base_url: str = DEEPSEEK_DEFAULT_BASE_URL
-    dashscope_api_key: str = ""
     deepseek_api_key: str = ""
     llm_heavy_model: str = "deepseek-v4-pro"
     llm_light_model: str = "deepseek-v4-flash"
     llm_fallback_model: str = "deepseek-v4-flash"
-    enforce_provider_model_guard: bool = Field(
-        default=True,
-        validation_alias=AliasChoices("ENFORCE_PROVIDER_MODEL_GUARD", "ENFORCE_QWEN_ONLY"),
-    )
+    enforce_provider_model_guard: bool = True
 
     search_providers: str = "tavily,duckduckgo"
     tavily_api_key: str = ""
@@ -131,32 +78,22 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_runtime_models(self) -> "Settings":
-        """Validate runtime LLM model settings for the selected provider."""
-        if self.llm_provider == "deepseek" and self.llm_base_url == QWEN_DEFAULT_BASE_URL:
-            self.llm_base_url = DEEPSEEK_DEFAULT_BASE_URL
-        if self.llm_provider == "qwen_dashscope" and self.llm_base_url == DEEPSEEK_DEFAULT_BASE_URL:
-            self.llm_base_url = QWEN_DEFAULT_BASE_URL
+        """Validate runtime LLM model settings for DeepSeek."""
         if not self.enforce_provider_model_guard:
             return self
-        validator = (
-            is_qwen_model_name if self.llm_provider == "qwen_dashscope" else is_deepseek_model_name
-        )
-        provider_name = "Qwen/QwQ" if self.llm_provider == "qwen_dashscope" else "DeepSeek"
         for field_name in ("llm_heavy_model", "llm_light_model", "llm_fallback_model"):
             model_name = getattr(self, field_name)
-            if not validator(model_name):
+            if not is_deepseek_model_name(model_name):
                 raise ConfigError(
                     f"{field_name}={model_name!r} is not allowed. "
-                    f"Runtime models must match provider {provider_name}."
+                    "Runtime models must match provider DeepSeek."
                 )
         return self
 
     @property
     def llm_api_key(self) -> str:
-        """Return the API key for the selected LLM provider."""
-        if self.llm_provider == "deepseek":
-            return self.deepseek_api_key
-        return self.dashscope_api_key
+        """Return the API key for DeepSeek."""
+        return self.deepseek_api_key
 
 
 @lru_cache(maxsize=1)

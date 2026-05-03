@@ -1,16 +1,16 @@
 # InsightAgent
 
-InsightAgent 是一个面向竞品调研的多 Agent 分析系统。用户输入赛道、竞品或分析维度后，系统会自动规划调研、搜索公开资料、抓取网页、抽取证据、生成分析结论，并输出带证据引用的 Markdown 报告。
+InsightAgent 是一个面向竞品调研和公开资料分析的多 Agent 系统。用户输入赛道、竞品和分析维度后，系统会自动规划调研任务、搜索公开信息、抓取网页、抽取证据、生成分析结论，并输出带 `evidence_id` 引用的 Markdown 报告。
 
 ## 项目亮点
 
-- 多 Agent 协作：Planner、Researcher、Analyst、Writer、Critic 分工明确。
-- 证据驱动：搜索、抓取、抽取结果进入结构化证据模型，报告结论引用 `evidence_id`。
-- LangGraph 工作流：使用 `StateGraph` 组织调研、充分性检查、分析、写作和质检节点。
-- Provider 模型守卫：支持 DeepSeek 与千问，真实模型名集中在配置层并按 provider 校验。
-- 稳定性设计：搜索、抓取、抽取均支持缓存；抓取失败短缓存；服务重启后会处理僵死任务。
-- 可验证边界：架构测试限制跨层导入、外部 SDK 使用、文件大小、公共函数 docstring。
-- 前后端完整：FastAPI 提供任务接口，Streamlit 提供可视化操作界面。
+- 多 Agent 协作：Planner、Researcher、Analyst、Writer、Critic 分工明确，职责边界清晰。
+- 证据链驱动：搜索、抓取、抽取结果都会进入结构化证据模型，报告结论可回溯到来源。
+- LangGraph 工作流：用状态图组织调研、充分性检查、分析、写作和质检流程。
+- DeepSeek 运行时守卫：业务运行时只接受白名单内的 DeepSeek 模型，避免配置误接入其他模型。
+- 稳定性设计：搜索、网页抓取、证据抽取支持缓存；抓取失败会短缓存；服务重启后会处理未完成任务状态。
+- 架构可验证：架构测试限制跨层导入、外部 SDK 使用、工具间耦合、文件体积和公共函数文档。
+- 前后端完整：FastAPI 提供任务接口，Streamlit 提供可视化操作页面。
 
 ## 技术栈
 
@@ -21,10 +21,10 @@ InsightAgent 是一个面向竞品调研的多 Agent 分析系统。用户输入
 - SQLAlchemy 2.x
 - Streamlit
 - HTTPX
-- DeepSeek / DashScope OpenAI-compatible API
+- DeepSeek OpenAI-compatible API
 - SQLite cache / SQLite task DB
 
-## 架构
+## 架构边界
 
 ```text
 api -> services -> graph -> agents -> tools -> infra
@@ -32,25 +32,25 @@ api -> services -> graph -> agents -> tools -> infra
 
 关键约束：
 
-- `agents/` 不直接导入外部 SDK，也不导入 infra 实现类。
-- OpenAI SDK 只作为 OpenAI-compatible 传输层使用，业务代码不直接依赖具体厂商 SDK。
-- 业务代码只使用 `model_role`，不硬编码真实模型名。
-- `tools/` 之间不互相调用，`app.tools.dedup` 纯函数除外。
+- `agents/` 不直接导入外部 SDK，也不导入 `infra` 实现类。
+- 业务代码只使用 `model_role`，真实模型名集中在配置层。
+- OpenAI SDK 只作为 DeepSeek OpenAI-compatible 传输层使用。
+- `tools/` 之间不互相调用，`app.tools.dedup` 这类纯函数模块除外。
 
 ## 目录结构
 
 ```text
 app/
   api/          FastAPI 路由
-  services/     任务编排、状态管理
+  services/     任务编排和状态管理
   graph/        LangGraph 工作流
   agents/       Planner / Researcher / Analyst / Writer / Critic
-  tools/        搜索、抓取、抽取、分类、充分性评估
-  infra/        LLM、搜索 Provider、抓取、缓存、数据库、日志
+  tools/        搜索、抓取、抽取、分类和充分性评估
+  infra/        LLM、搜索 Provider、抓取、缓存、数据库和日志
 frontend/       Streamlit 前端
-scripts/        演示预热和真实烟测脚本
-tests/          架构、单元、集成、E2E 测试
-docs/           规约、审查记录、修复报告
+scripts/        演示缓存预热和真实 smoke 脚本
+tests/          架构、单元、集成和 E2E 测试
+docs/           规约、审查记录和修复报告
 ```
 
 ## 快速开始
@@ -63,7 +63,7 @@ docs/           规约、审查记录、修复报告
 python --version
 ```
 
-如果显示的不是 `3.12.x`，请先切换 Python 版本。
+如果显示的不是 `3.12.x`，请先切换到 Python 3.12。
 
 ### 2. 获取代码
 
@@ -117,7 +117,7 @@ Linux / macOS：
 cp .env.example .env
 ```
 
-打开 `.env`，默认配置为 DeepSeek，至少填写：
+打开 `.env`，至少填写 DeepSeek 密钥：
 
 ```bash
 LLM_PROVIDER=deepseek
@@ -130,9 +130,9 @@ LLM_FALLBACK_MODEL=deepseek-v4-flash
 
 说明：
 
-- `TAVILY_API_KEY` 可留空，系统会跳过 Tavily，使用 DuckDuckGo。
-- `.env` 包含密钥，不要提交到 Git。
-- 如果要切回千问，把 `LLM_PROVIDER` 改成 `qwen_dashscope`，`LLM_BASE_URL` 改成 `https://dashscope.aliyuncs.com/compatible-mode/v1`，填写 `DASHSCOPE_API_KEY`，并把模型名改成 `qwen-max`、`qwen-turbo`、`qwen-plus` 等千问模型。
+- `DEEPSEEK_API_KEY` 不要提交到 Git。
+- `TAVILY_API_KEY` 可以留空；留空时系统会跳过 Tavily，使用 DuckDuckGo 作为公开搜索来源。
+- `ENFORCE_PROVIDER_MODEL_GUARD=true` 会在启动时校验模型名，建议保持开启。
 
 ## 本地运行
 
@@ -159,7 +159,7 @@ streamlit run frontend/streamlit_app.py --server.port=8501 --server.address=127.
 http://127.0.0.1:8501
 ```
 
-如果后端端口不是 8000，可设置：
+如果后端端口不是 8000，可以指定前端访问的 API 地址：
 
 Windows：
 
@@ -174,7 +174,32 @@ Linux / macOS：
 INSIGHT_API_BASE=http://127.0.0.1:你的端口 streamlit run frontend/streamlit_app.py --server.port=8501
 ```
 
-## Docker 部署
+## 部署方式
+
+### 方式一：Windows 本地部署
+
+这是 Windows 用户的推荐方式，不需要 Docker。
+
+1. 安装 Python 3.12。
+2. 按“快速开始”创建虚拟环境并安装依赖。
+3. 复制 `.env.example` 为 `.env`，填入 `DEEPSEEK_API_KEY`。
+4. 启动后端：
+
+```powershell
+uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+5. 再开一个 PowerShell 启动前端：
+
+```powershell
+streamlit run frontend/streamlit_app.py --server.port=8501 --server.address=127.0.0.1
+```
+
+6. 浏览器访问 `http://127.0.0.1:8501`。
+
+### 方式二：Docker Compose 部署
+
+Docker 不是必须的。只有当你的系统已经能正常使用 Docker Desktop，或者你想用容器统一环境时，才需要使用这个方式。
 
 准备 `.env` 后运行：
 
@@ -187,7 +212,7 @@ docker compose up --build
 - 后端：http://127.0.0.1:8000/docs
 - 前端：http://127.0.0.1:8501
 
-Docker Compose 会等待 API 健康检查通过后再启动前端。前端容器内部会通过 `http://api:8000` 访问后端，本机浏览器仍访问 `http://127.0.0.1:8501`。
+Docker Compose 会等待 API 健康检查通过后再启动前端。前端容器内部通过 `http://api:8000` 访问后端，本机浏览器仍访问 `http://127.0.0.1:8501`。
 
 停止服务：
 
@@ -200,22 +225,14 @@ docker compose down
 完整验证：
 
 ```bash
-python -m pytest tests/architecture/ tests/unit/ tests/integration/ tests/e2e/ -v
 python -m ruff check app/ tests/ frontend/streamlit_app.py
 python -m mypy app/ --ignore-missing-imports
-```
-
-当前修复后验证结果：
-
-```text
-51 passed
-ruff: All checks passed
-mypy: Success: no issues found
+python -m pytest tests/architecture/ tests/unit/ tests/integration/ tests/e2e/ -v
 ```
 
 ## 演示建议
 
-真实联网调研会受到搜索服务、目标网页和 LLM 响应速度影响。面试或演示前建议先预热缓存：
+真实联网调研会受到搜索服务、目标网页和 LLM 响应速度影响。面试或演示前可以先预热缓存：
 
 ```bash
 python scripts/preload_demo_cache.py
@@ -245,7 +262,7 @@ curl http://127.0.0.1:8000/api/tasks/{task_id}/report
 
 ## 当前限制
 
-- 只处理公开网页，不访问登录后内容。
+- 只处理公开网页，不访问登录后的内容。
 - 搜索质量依赖外部搜索 Provider。
 - LLM 输出质量受模型稳定性和网页文本质量影响。
 - Critic 当前以规则检查为主，LLM Critic 默认关闭。

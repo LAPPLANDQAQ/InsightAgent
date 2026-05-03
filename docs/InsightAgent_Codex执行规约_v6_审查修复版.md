@@ -9,7 +9,7 @@
 > 1. 修复 agents 导入 `app.infra.llm.base` 与架构测试互相冲突的问题。
 > 2. 修复 `.env.example` 中 Tavily 占位 API Key 导致默认搜索失败的问题。
 > 3. 补齐 `duckduckgo_search` / `PyMySQL` 依赖，避免 Commit 6/12 运行时报错。
-> 4. 扩展千问模型守卫：允许 qwen/qwq 前缀的千问系列模型，拒绝 GPT/Claude/DeepSeek/本地模型。
+> 4. 扩展DeepSeek模型守卫：允许 deepseek 前缀的DeepSeek系列模型，拒绝 GPT/Claude/DeepSeek/本地模型。
 > 5. 修复 Researcher 未使用 `max_rounds`、无全局 try-except、证据重复、`__import__` hack 等问题。
 > 6. 修复 Search/Fetch 缓存 Key 与失败缓存策略。
 > 7. 修复 TaskService 后台任务、状态查询、用户指定竞品/维度未传入工作流、API 循环导入等问题。
@@ -37,30 +37,30 @@
 ```
 × agents/ import app.infra.* 的实现类
   - 唯一例外：agents/ 可以导入 app.infra.llm.base 中的 Protocol / ModelRole / LLMOutputError 类型
-  - 禁止导入 app.infra.llm.qwen_dashscope_client 或任何 infra 实现
-× agents/ import httpx / openai / anthropic / dashscope / duckduckgo_search / tavily
+  - 禁止导入 app.infra.llm.deepseek_client 或任何 infra 实现
+× agents/ import httpx / openai / anthropic / deepseek / duckduckgo_search / tavily
 × tools/ 互相 import
   - 唯一例外：tools/ 可以导入 app.tools.dedup 中的纯函数
 × tools/ import services/
 × infra/ import agents/ 或 graph/
 × 业务运行代码出现 OpenAI / Anthropic / DeepSeek / 本地模型 Provider 实现
-  - 注意：openai Python SDK 仅允许在 app/infra/llm/qwen_dashscope_client.py 中作为 DashScope OpenAI 兼容传输层使用
-× .env.example 中默认模型名为非千问
+  - 注意：openai Python SDK 仅允许在 app/infra/llm/deepseek_client.py 中作为 DeepSeek OpenAI 兼容传输层使用
+× .env.example 中默认模型名为非DeepSeek
 × 一次提交 30+ 文件的大爆炸 commit
 × 提交未运行的代码
 × 工具间硬编码模型名(只能用 model_role)
 × tests/integration/ 或 tests/e2e/ 出现 pass / TODO 占位
 ```
 
-### 0.3 千问运行时硬边界
+### 0.3 DeepSeek运行时硬边界
 
 ```
 运行时 LLMClient 实现仅允许:
-  app/infra/llm/qwen_dashscope_client.py
+  app/infra/llm/deepseek_client.py
 
-千问模型守卫规则(写入 config.py):
-  允许：模型名以 qwen 或 qwq 开头，例如 qwen-max / qwen-plus / qwen-turbo / qwen-flash / qwen-long / qwen3.5-plus / qwen3.5-flash / qwen-max-latest / qwq-plus
-  禁止：gpt / claude / deepseek / kimi / glm / yi / moonshot / local / ollama / llama 等非千问运行时模型
+DeepSeek模型守卫规则(写入 config.py):
+  允许：模型名以 deepseek 或 deepseek 开头，例如 deepseek-v4-pro / deepseek-v4-flash / deepseek-v4-flash / deepseek-v4-flash / deepseek-v4-flash / deepseek-v4-pro / deepseek-v4-flash / deepseek-v4-pro / deepseek-reasoner
+  禁止：gpt / claude / deepseek / kimi / glm / yi / moonshot / local / ollama / llama 等非DeepSeek运行时模型
 
 业务代码使用 model_role: heavy / light / fallback
 真实模型名仅在 .env / config.py 中
@@ -69,14 +69,14 @@
 ### 0.4 Commit 顺序(严格按序)
 
 ```
-Commit 0:  scripts/verify_qwen_api.py(开工验证)
+Commit 0:  scripts/verify_deepseek_api.py(开工验证)
 Commit 1:  骨架 + 配置 + 模型守卫
 Commit 2:  schemas/
 Commit 3:  L0 Protocol 接口
 Commit 4:  Fake/Stub 测试基础
 Commit 5:  缓存 + 日志
 Commit 6:  搜索 + 抓取(含联网验证)
-Commit 7:  QwenDashScopeClient
+Commit 7:  DeepSeekClient
 Commit 8:  Tool 层
 Commit 9:  Planner + Researcher
 Commit 10: Analyst + Writer + Rule-based Critic
@@ -111,7 +111,7 @@ insight-agent/
 │   │   ├── llm/
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py
-│   │   │   ├── qwen_dashscope_client.py
+│   │   │   ├── deepseek_client.py
 │   │   │   └── fake_client.py
 │   │   ├── search/
 │   │   │   ├── __init__.py
@@ -175,7 +175,7 @@ insight-agent/
 ├── frontend/
 │   └── streamlit_app.py
 ├── scripts/
-│   ├── verify_qwen_api.py
+│   ├── verify_deepseek_api.py
 │   ├── preload_demo_cache.py
 │   └── smoke_live.py
 ├── tests/
@@ -210,45 +210,45 @@ insight-agent/
 
 ---
 
-## 2. Commit 0:scripts/verify_qwen_api.py
+## 2. Commit 0:scripts/verify_deepseek_api.py
 
 ### 2.1 目的
 
-验证千问 API 在当前网络环境下的稳定性,在开始正式开发前确认基础设施可用。
+验证DeepSeek API 在当前网络环境下的稳定性,在开始正式开发前确认基础设施可用。
 
 ### 2.2 实现要求
 
 ```
-文件:scripts/verify_qwen_api.py
-依赖:openai SDK(指向千问兼容端点)、httpx
-读取环境变量:DASHSCOPE_API_KEY、LLM_BASE_URL
+文件:scripts/verify_deepseek_api.py
+依赖:openai SDK(指向DeepSeek兼容端点)、httpx
+读取环境变量:DEEPSEEK_API_KEY、LLM_BASE_URL
 
 执行 5 种测试,每种重复 3 次,记录成功率与平均延迟:
 
 测试 1:基础文本生成
   prompt: "请用一句话介绍 Python"
-  model: qwen-turbo
+  model: deepseek-v4-flash
   期望:稳定返回非空字符串
 
 测试 2:response_format=json_object
   prompt: '请输出一个 JSON,包含 name 和 age 字段。直接输出 JSON。'
-  model: qwen-turbo
+  model: deepseek-v4-flash
   response_format: {"type": "json_object"}
   期望:返回合法 JSON
 
 测试 3:强约束 prompt + ```json``` 提取
   prompt: '请输出 JSON: {"name": "...", "age": ...}。包裹在 ```json``` 代码块中。'
-  model: qwen-turbo
+  model: deepseek-v4-flash
   期望:提取代码块后解析成功
 
 测试 4:长 prompt 接近 max_tokens
   prompt: 重复 "你好" 1500 次后追加 "请总结上述文本"
-  model: qwen-turbo, max_tokens=500
+  model: deepseek-v4-flash, max_tokens=500
   期望:不超时,返回有意义内容
 
 测试 5:高频连续调用
   连续 10 次 prompt: "1+1="
-  model: qwen-turbo
+  model: deepseek-v4-flash
   期望:无限流错误
 
 输出格式:
@@ -331,14 +331,14 @@ APP_ENV=dev
 LOG_LEVEL=INFO
 
 # LLM Provider
-# 业务运行时只允许千问；GPT/Claude/DeepSeek 只能用于开发辅助，不能写入运行时配置。
-LLM_PROVIDER=qwen_dashscope
-LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-DASHSCOPE_API_KEY=your_dashscope_key_here
-LLM_HEAVY_MODEL=qwen-max
-LLM_LIGHT_MODEL=qwen-turbo
-LLM_FALLBACK_MODEL=qwen-plus
-ENFORCE_QWEN_ONLY=true
+# 业务运行时只允许DeepSeek；GPT/Claude/DeepSeek 只能用于开发辅助，不能写入运行时配置。
+LLM_PROVIDER=deepseek
+LLM_BASE_URL=https://api.deepseek.com
+DEEPSEEK_API_KEY=your_deepseek_key_here
+LLM_HEAVY_MODEL=deepseek-v4-pro
+LLM_LIGHT_MODEL=deepseek-v4-flash
+LLM_FALLBACK_MODEL=deepseek-v4-flash
+ENFORCE_PROVIDER_MODEL_GUARD=true
 
 # Search
 # Tavily API Key 留空时自动跳过 Tavily，只使用 DuckDuckGo。
@@ -387,11 +387,11 @@ class ConfigError(ValueError):
     """配置非法时抛出。"""
 
 
-# 显式列出常用千问模型，同时允许 qwen/qwq 前缀以兼容 qwen3.x / latest 等新模型名。
-QWEN_MODEL_WHITELIST = frozenset({
-    "qwen-max", "qwen-plus", "qwen-turbo", "qwen-long", "qwen-flash",
-    "qwen-max-latest", "qwen-plus-latest", "qwen-turbo-latest", "qwen-long-latest",
-    "qwen3-max", "qwen3.5-plus", "qwen3.5-flash", "qwq-plus",
+# 显式列出常用DeepSeek模型，同时允许 deepseek 前缀以兼容 deepseek3.x / latest 等新模型名。
+DEEPSEEK_MODEL_WHITELIST = frozenset({
+    "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash", "deepseek-v4-flash", "deepseek-v4-flash",
+    "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash", "deepseek-v4-flash",
+    "deepseek-v4-pro", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-reasoner",
 })
 FORBIDDEN_MODEL_KEYWORDS = (
     "gpt", "claude", "deepseek", "kimi", "moonshot", "glm", "yi", "llama",
@@ -399,8 +399,8 @@ FORBIDDEN_MODEL_KEYWORDS = (
 )
 
 
-def is_qwen_model_name(name: str) -> bool:
-    """判断模型名是否属于千问运行时允许范围。
+def is_deepseek_model_name(name: str) -> bool:
+    """判断模型名是否属于DeepSeek运行时允许范围。
 
     Args:
         name: 模型名。
@@ -413,7 +413,7 @@ def is_qwen_model_name(name: str) -> bool:
         return False
     if any(k in normalized for k in FORBIDDEN_MODEL_KEYWORDS):
         return False
-    return normalized in QWEN_MODEL_WHITELIST or normalized.startswith(("qwen", "qwq"))
+    return normalized in DEEPSEEK_MODEL_WHITELIST or normalized.startswith(("deepseek", "deepseek"))
 
 
 class Settings(BaseSettings):
@@ -428,13 +428,13 @@ class Settings(BaseSettings):
     app_env: Literal["dev", "prod", "test"] = "dev"
     log_level: str = "INFO"
 
-    llm_provider: Literal["qwen_dashscope"] = "qwen_dashscope"
-    llm_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    dashscope_api_key: str = ""
-    llm_heavy_model: str = "qwen-max"
-    llm_light_model: str = "qwen-turbo"
-    llm_fallback_model: str = "qwen-plus"
-    enforce_qwen_only: bool = True
+    llm_provider: Literal["deepseek"] = "deepseek"
+    llm_base_url: str = "https://api.deepseek.com"
+    deepseek_api_key: str = ""
+    llm_heavy_model: str = "deepseek-v4-pro"
+    llm_light_model: str = "deepseek-v4-flash"
+    llm_fallback_model: str = "deepseek-v4-flash"
+    enforce_deepseek_only: bool = True
 
     search_providers: str = "tavily,duckduckgo"
     tavily_api_key: str = ""
@@ -459,17 +459,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_runtime_models(self) -> "Settings":
-        """校验业务运行时只使用千问模型。"""
-        if self.llm_provider != "qwen_dashscope":
-            raise ConfigError("LLM_PROVIDER must be qwen_dashscope in runtime")
-        if not self.enforce_qwen_only:
+        """校验业务运行时只使用DeepSeek模型。"""
+        if self.llm_provider != "deepseek":
+            raise ConfigError("LLM_PROVIDER must be deepseek in runtime")
+        if not self.enforce_deepseek_only:
             return self
         for field_name in ("llm_heavy_model", "llm_light_model", "llm_fallback_model"):
             model_name = getattr(self, field_name)
-            if not is_qwen_model_name(model_name):
+            if not is_deepseek_model_name(model_name):
                 raise ConfigError(
                     f"{field_name}={model_name!r} is not allowed. "
-                    "Runtime models must be Qwen/QwQ only."
+                    "Runtime models must be DeepSeek only."
                 )
         return self
 
@@ -486,69 +486,69 @@ def get_settings() -> Settings:
 """验证运行时模型守卫。"""
 
 import pytest
-from app.config import Settings, is_qwen_model_name, QWEN_MODEL_WHITELIST
+from app.config import Settings, is_deepseek_model_name, DEEPSEEK_MODEL_WHITELIST
 
 
 @pytest.fixture
 def base_env(monkeypatch):
     """设置最小可启动环境。"""
-    monkeypatch.setenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-    monkeypatch.setenv("DASHSCOPE_API_KEY", "fake_key")
-    monkeypatch.setenv("LLM_PROVIDER", "qwen_dashscope")
-    monkeypatch.setenv("ENFORCE_QWEN_ONLY", "true")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "fake_key")
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("ENFORCE_PROVIDER_MODEL_GUARD", "true")
 
 
 def test_settings_reject_gpt(base_env, monkeypatch):
     """业务运行时拒绝 GPT 模型名。"""
     monkeypatch.setenv("LLM_HEAVY_MODEL", "gpt-5.5")
-    monkeypatch.setenv("LLM_LIGHT_MODEL", "qwen-turbo")
-    monkeypatch.setenv("LLM_FALLBACK_MODEL", "qwen-plus")
-    with pytest.raises(Exception, match="Qwen"):
+    monkeypatch.setenv("LLM_LIGHT_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "deepseek-v4-flash")
+    with pytest.raises(Exception, match="DeepSeek"):
         Settings()
 
 
 def test_settings_reject_claude(base_env, monkeypatch):
     """业务运行时拒绝 Claude 模型名。"""
-    monkeypatch.setenv("LLM_HEAVY_MODEL", "qwen-max")
+    monkeypatch.setenv("LLM_HEAVY_MODEL", "deepseek-v4-pro")
     monkeypatch.setenv("LLM_LIGHT_MODEL", "claude-3-haiku")
-    monkeypatch.setenv("LLM_FALLBACK_MODEL", "qwen-plus")
-    with pytest.raises(Exception, match="Qwen"):
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "deepseek-v4-flash")
+    with pytest.raises(Exception, match="DeepSeek"):
         Settings()
 
 
 def test_settings_reject_deepseek(base_env, monkeypatch):
     """业务运行时拒绝 DeepSeek 模型名。"""
-    monkeypatch.setenv("LLM_HEAVY_MODEL", "qwen-max")
+    monkeypatch.setenv("LLM_HEAVY_MODEL", "deepseek-v4-pro")
     monkeypatch.setenv("LLM_LIGHT_MODEL", "deepseek-v4-flash")
-    monkeypatch.setenv("LLM_FALLBACK_MODEL", "qwen-plus")
-    with pytest.raises(Exception, match="Qwen"):
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "deepseek-v4-flash")
+    with pytest.raises(Exception, match="DeepSeek"):
         Settings()
 
 
-def test_settings_accept_qwen(base_env, monkeypatch):
-    """业务运行时接受千问模型名。"""
-    monkeypatch.setenv("LLM_HEAVY_MODEL", "qwen-max")
-    monkeypatch.setenv("LLM_LIGHT_MODEL", "qwen-turbo")
-    monkeypatch.setenv("LLM_FALLBACK_MODEL", "qwen-plus")
+def test_settings_accept_deepseek(base_env, monkeypatch):
+    """业务运行时接受DeepSeek模型名。"""
+    monkeypatch.setenv("LLM_HEAVY_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_LIGHT_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "deepseek-v4-flash")
     s = Settings()
-    assert s.llm_heavy_model == "qwen-max"
+    assert s.llm_heavy_model == "deepseek-v4-pro"
 
 
-def test_settings_accept_new_qwen_prefix(base_env, monkeypatch):
-    """允许 qwen/qwq 前缀的新千问模型名。"""
-    monkeypatch.setenv("LLM_HEAVY_MODEL", "qwen3.5-plus")
-    monkeypatch.setenv("LLM_LIGHT_MODEL", "qwen3.5-flash")
-    monkeypatch.setenv("LLM_FALLBACK_MODEL", "qwq-plus")
+def test_settings_accept_new_deepseek_prefix(base_env, monkeypatch):
+    """允许 deepseek 前缀的新DeepSeek模型名。"""
+    monkeypatch.setenv("LLM_HEAVY_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_LIGHT_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_FALLBACK_MODEL", "deepseek-reasoner")
     s = Settings()
-    assert s.llm_light_model == "qwen3.5-flash"
+    assert s.llm_light_model == "deepseek-v4-flash"
 
 
 def test_whitelist_completeness():
-    """白名单必须包含主流千问模型。"""
-    assert "qwen-max" in QWEN_MODEL_WHITELIST
-    assert "qwen-turbo" in QWEN_MODEL_WHITELIST
-    assert "qwen-plus" in QWEN_MODEL_WHITELIST
-    assert is_qwen_model_name("qwen-max-latest")
+    """白名单必须包含主流DeepSeek模型。"""
+    assert "deepseek-v4-pro" in DEEPSEEK_MODEL_WHITELIST
+    assert "deepseek-v4-flash" in DEEPSEEK_MODEL_WHITELIST
+    assert "deepseek-v4-flash" in DEEPSEEK_MODEL_WHITELIST
+    assert is_deepseek_model_name("deepseek-v4-pro")
 ```
 
 ### 3.5 tests/architecture/test_no_direct_external_imports.py
@@ -561,7 +561,7 @@ from pathlib import Path
 
 FORBIDDEN_BASE = {"anthropic", "deepseek"}
 FORBIDDEN_IN_AGENTS = {
-    "httpx", "openai", "anthropic", "dashscope",
+    "httpx", "openai", "anthropic", "deepseek",
     "duckduckgo_search", "tavily",
 }
 RUNTIME_DIRS = ["agents", "graph", "services", "api"]
@@ -589,9 +589,9 @@ def test_runtime_not_import_forbidden_sdk():
                 assert base not in FORBIDDEN_BASE, f"{py} imports forbidden SDK: {name}"
 
 
-def test_openai_sdk_only_used_by_qwen_client():
-    """openai SDK 只能在千问兼容客户端中作为传输层使用。"""
-    allowed = APP_ROOT / "infra" / "llm" / "qwen_dashscope_client.py"
+def test_openai_sdk_only_used_by_deepseek_client():
+    """openai SDK 只能在DeepSeek兼容客户端中作为传输层使用。"""
+    allowed = APP_ROOT / "infra" / "llm" / "deepseek_client.py"
     for py in APP_ROOT.rglob("*.py"):
         for name in _iter_imports(py):
             if name.split(".")[0].lower() == "openai":
@@ -724,7 +724,7 @@ V0 开发中。
 
 ```bash
 cp .env.example .env
-# 填入 DASHSCOPE_API_KEY 与 TAVILY_API_KEY
+# 填入 DEEPSEEK_API_KEY 与 TAVILY_API_KEY
 pip install -e ".[dev]"
 pytest
 ```
@@ -1795,12 +1795,12 @@ if __name__ == "__main__":
 
 ---
 
-## 9. Commit 7:QwenDashScopeClient
+## 9. Commit 7:DeepSeekClient
 
-### 9.1 app/infra/llm/qwen_dashscope_client.py
+### 9.1 app/infra/llm/deepseek_client.py
 
 ```python
-"""千问 DashScope OpenAI 兼容客户端。业务运行时唯一 LLM 实现。"""
+"""DeepSeek DeepSeek OpenAI 兼容客户端。业务运行时唯一 LLM 实现。"""
 
 import json
 import logging
@@ -1837,8 +1837,8 @@ def get_token_usage() -> dict:
     return dict(ctx) if ctx else {}
 
 
-class QwenDashScopeClient(LLMClient):
-    """千问客户端。
+class DeepSeekClient(LLMClient):
+    """DeepSeek客户端。
 
     schema 解析三级降级:
     1. response_format=json_object + 直接解析
@@ -1872,7 +1872,7 @@ class QwenDashScopeClient(LLMClient):
         temperature: float = 0.3,
         timeout: float = 30.0,
     ) -> T | str:
-        """调用千问。详见 LLMClient 接口。"""
+        """调用DeepSeek。详见 LLMClient 接口。"""
         model_name = self.models[model_role]
 
         if schema is None:
@@ -2041,11 +2041,11 @@ class QwenDashScopeClient(LLMClient):
 ### 9.2 验收
 
 ```python
-# tests/unit/infra/test_qwen_client.py
+# tests/unit/infra/test_deepseek_client.py
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from app.infra.llm.qwen_dashscope_client import (
-    QwenDashScopeClient, reset_token_ctx, get_token_usage,
+from app.infra.llm.deepseek_client import (
+    DeepSeekClient, reset_token_ctx, get_token_usage,
 )
 from pydantic import BaseModel
 
@@ -2056,9 +2056,9 @@ class FakeResp(BaseModel):
 
 @pytest.mark.asyncio
 async def test_text_call(monkeypatch):
-    client = QwenDashScopeClient(
+    client = DeepSeekClient(
         api_key="x", base_url="http://x",
-        heavy_model="qwen-max", light_model="qwen-turbo", fallback_model="qwen-plus",
+        heavy_model="deepseek-v4-pro", light_model="deepseek-v4-flash", fallback_model="deepseek-v4-flash",
     )
     mock_resp = MagicMock()
     mock_resp.choices = [MagicMock(message=MagicMock(content="hi"))]
@@ -3380,7 +3380,7 @@ import logging
 import uuid
 from datetime import datetime
 from app.graph.workflow import build_graph
-from app.infra.llm.qwen_dashscope_client import get_token_usage, reset_token_ctx
+from app.infra.llm.deepseek_client import get_token_usage, reset_token_ctx
 
 logger = logging.getLogger(__name__)
 
@@ -3579,7 +3579,7 @@ async def get_report(task_id: str, svc=Depends(get_task_service)):
 from app.config import Settings
 from app.infra.cache.sqlite_cache import SQLiteCache
 from app.infra.cache.memory_cache import MemoryCache
-from app.infra.llm.qwen_dashscope_client import QwenDashScopeClient
+from app.infra.llm.deepseek_client import DeepSeekClient
 from app.infra.search.service import SearchService
 from app.infra.search.tavily import TavilyProvider
 from app.infra.search.duckduckgo import DuckDuckGoProvider
@@ -3604,8 +3604,8 @@ class Container:
         self.cache = (
             SQLiteCache() if settings.cache_backend == "sqlite" else MemoryCache()
         )
-        self.llm = QwenDashScopeClient(
-            api_key=settings.dashscope_api_key,
+        self.llm = DeepSeekClient(
+            api_key=settings.deepseek_api_key,
             base_url=settings.llm_base_url,
             heavy_model=settings.llm_heavy_model,
             light_model=settings.llm_light_model,
@@ -3830,7 +3830,7 @@ async def test_full_pipeline_with_fixtures(container_with_stubs):
 - 五 Agent 协作:Planner / Researcher / Analyst / Writer / Critic
 - 证据链可追溯:报告每条结论绑定 evidence_id
 - Critic 质量门控:Rule-based 检查 + 自动回退 + 迭代熔断
-- 千问运行时:业务 LLM 锁定通义千问系列
+- DeepSeek运行时:业务 LLM 锁定通义DeepSeek系列
 - 模块化:接口层 + 依赖注入 + 架构测试自动验证
 
 ## 架构
@@ -3843,7 +3843,7 @@ api → services → graph → agents → tools → infra
 
 ```bash
 cp .env.example .env
-# 填入 DASHSCOPE_API_KEY 与 TAVILY_API_KEY
+# 填入 DEEPSEEK_API_KEY 与 TAVILY_API_KEY
 pip install -e ".[dev]"
 pytest                                              # 验证骨架
 uvicorn app.main:app --reload                       # 启动后端
@@ -3936,14 +3936,14 @@ services:
 ✓ ruff check app/ tests/ 通过
 
 ✓ 真实联网烟囱:
-  - python scripts/verify_qwen_api.py 千问稳定
+  - python scripts/verify_deepseek_api.py DeepSeek稳定
   - python scripts/smoke_search_fetch.py 搜索抓取稳定
   - python scripts/preload_demo_cache.py 演示缓存就绪
 
 ✓ 文档:
   - README.md 含架构图、启动方式、演示说明、当前限制
   - examples/sample_report.md 含真实报告样本
-  - .env.example 模型默认为千问
+  - .env.example 模型默认为DeepSeek
 
 ✓ 容器:
   - docker compose up 后 api 与 frontend 正常运行
@@ -3965,14 +3965,14 @@ pytest tests/architecture/ tests/unit/ -v && ruff check app/ tests/
 1. 严格按 Commit 顺序实现,不要跨 Commit 跳跃
 2. 每个 Commit 完成后必须跑测试,通过才进入下一 Commit
 3. 任何时候发现代码违反 §0.2 禁止行为,立即重构
-4. .env.example 的默认模型必须是千问
-5. agents/ 目录任何文件出现 import httpx/openai/anthropic/dashscope 立即报错
+4. .env.example 的默认模型必须是DeepSeek
+5. agents/ 目录任何文件出现 import httpx/openai/anthropic/deepseek 立即报错
 6. tools/ 互相 import(除 dedup)立即报错
 7. ResearchPlan 的 required_fields 必须经过 model_validator 强校验
 8. LLMClient 调用必须传 model_role,不准传 model_name
 9. 所有 fetch / search / extract 结果必须经过缓存
 10. extract 输入 > 2000 字必须直接抛 ValueError,不能截断兜底
-11. openai SDK 只能出现在 qwen_dashscope_client.py,且只能作为 DashScope 兼容端点传输层
+11. openai SDK 只能出现在 deepseek_client.py,且只能作为 DeepSeek 兼容端点传输层
 12. 用户传入 competitors / dimensions 必须进入 Planner prompt,不能丢弃
 13. Search/Fetch 缓存 Key 必须包含影响结果的关键参数,失败抓取只短缓存
 14. TaskService.create_task 必须是 async,API 中必须 await

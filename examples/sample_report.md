@@ -7,7 +7,7 @@
 
 ## 市场摘要
 
-该样例用于展示 InsightAgent 报告结构。真实报告会绑定 evidence_id，并在联网与千问配置可用时生成更完整的证据链。
+该样例用于展示 InsightAgent 报告结构。真实报告会绑定 `evidence_id`，并在联网与 DeepSeek 配置可用时生成更完整的证据链。
 
 ## 维度分析
 

@@ -8,7 +8,6 @@ FORBIDDEN_IN_AGENTS = {
     "httpx",
     "openai",
     "anthropic",
-    "dashscope",
     "duckduckgo_search",
     "tavily",
 }
@@ -35,8 +34,8 @@ def test_runtime_not_import_forbidden_sdk():
                 assert base not in FORBIDDEN_BASE, f"{py_file} imports forbidden SDK: {name}"
 
 
-def test_openai_sdk_only_used_by_qwen_client():
-    allowed = APP_ROOT / "infra" / "llm" / "qwen_dashscope_client.py"
+def test_openai_sdk_only_used_by_deepseek_client():
+    allowed = APP_ROOT / "infra" / "llm" / "deepseek_client.py"
     for py_file in APP_ROOT.rglob("*.py"):
         for name in _iter_imports(py_file):
             if name.split(".")[0].lower() == "openai":

@@ -9,7 +9,7 @@ from app.config import Settings
 from app.infra.cache.memory_cache import MemoryCache
 from app.infra.cache.sqlite_cache import SQLiteCache
 from app.infra.fetch.httpx_client import HttpxFetchClient
-from app.infra.llm.qwen_dashscope_client import QwenDashScopeClient
+from app.infra.llm.deepseek_client import DeepSeekClient
 from app.infra.search.base import SearchProvider
 from app.infra.search.duckduckgo import DuckDuckGoProvider
 from app.infra.search.service import SearchService
@@ -27,7 +27,7 @@ class Container:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.cache = SQLiteCache() if settings.cache_backend == "sqlite" else MemoryCache()
-        self.llm = QwenDashScopeClient(
+        self.llm = DeepSeekClient(
             api_key=settings.llm_api_key,
             base_url=settings.llm_base_url,
             heavy_model=settings.llm_heavy_model,

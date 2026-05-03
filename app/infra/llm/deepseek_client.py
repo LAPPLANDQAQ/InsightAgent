@@ -1,4 +1,4 @@
-"""Qwen DashScope OpenAI-compatible LLM client."""
+"""DeepSeek OpenAI-compatible LLM client."""
 
 import json
 import re
@@ -11,8 +11,8 @@ from app.infra.llm.base import LLMClient, LLMOutputError, ModelRole
 T = TypeVar("T", bound=BaseModel)
 
 
-class QwenDashScopeClient(LLMClient):
-    """LLM client for DashScope's OpenAI-compatible Qwen endpoint."""
+class DeepSeekClient(LLMClient):
+    """LLM client for DeepSeek's OpenAI-compatible endpoint."""
 
     def __init__(
         self,
@@ -45,11 +45,11 @@ class QwenDashScopeClient(LLMClient):
         temperature: float = 0.3,
         timeout: float = 30.0,
     ) -> T | str:
-        """Invoke Qwen by logical model role.
+        """Invoke DeepSeek by logical model role.
 
         Args:
             prompt: Prompt text.
-            model_role: Logical model role mapped to configured Qwen model.
+            model_role: Logical model role mapped to a configured DeepSeek model.
             schema: Optional Pydantic schema for JSON output.
             max_tokens: Maximum output tokens.
             temperature: Sampling temperature.

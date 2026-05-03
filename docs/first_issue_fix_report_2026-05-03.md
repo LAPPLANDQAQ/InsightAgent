@@ -183,7 +183,7 @@
 
 - 重写 README。
 - 保留并优化本地部署、Docker 部署、测试验证、演示建议。
-- 突出多 Agent、LangGraph、证据链、千问守卫、缓存和架构测试等亮点。
+- 突出多 Agent、LangGraph、证据链、DeepSeek守卫、缓存和架构测试等亮点。
 
 涉及文件：
 
@@ -211,7 +211,7 @@ mypy: Success: no issues found
 
 ## 后续建议
 
-1. 增加真实联网 smoke 测试记录，包括 DashScope、搜索 Provider 和目标网页抓取成功率。
+1. 增加真实联网 smoke 测试记录，包括 DeepSeek、搜索 Provider 和目标网页抓取成功率。
 2. 为 LLM 调用增加更细粒度的 token 预算和按角色并发控制。
 3. 将规则 Critic 逐步升级为规则加 LLM 双层质检。
 4. 引入 Alembic migration，替代启动时自动 `create_all` 的轻量方案。
