@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import Sequence
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.infra.cache.base import CacheBackend
 from app.infra.logger import get_logger
@@ -39,7 +40,7 @@ class SearchService:
         if self.cache:
             cached = await self.cache.get(cache_key)
             if cached is not None:
-                return self._loads(cached)
+                return self._loads(cached)[:max_results]
 
         provider_results = await asyncio.gather(
             *(self._search_provider(provider, query, max_results) for provider in self.providers)
@@ -92,9 +93,21 @@ class SearchService:
         seen: set[str] = set()
         output: list[SearchResult] = []
         for result in results:
-            normalized = result.url.rstrip("/").lower()
+            normalized = _normalize_url(result.url)
             if normalized in seen:
                 continue
             seen.add(normalized)
             output.append(result)
         return output
+
+
+def _normalize_url(url: str) -> str:
+    parsed = urlsplit(url.strip())
+    query_items = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query)
+        if not key.lower().startswith("utm_") and key.lower() != "ref"
+    ]
+    query = urlencode(query_items)
+    path = parsed.path.rstrip("/") or "/"
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, query, ""))

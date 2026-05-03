@@ -92,3 +92,11 @@ async def test_httpx_fetch_client_returns_error_result():
     result = await client.fetch("https://example.com")
     assert result.error
     assert result.status_code == 0
+
+
+@pytest.mark.asyncio
+async def test_httpx_fetch_client_blocks_localhost():
+    client = HttpxFetchClient(cache=MemoryCache())
+    result = await client.fetch("http://127.0.0.1/admin")
+    assert result.error == "blocked private or local host"
+    assert result.status_code == 0

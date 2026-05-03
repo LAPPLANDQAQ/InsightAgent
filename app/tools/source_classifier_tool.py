@@ -62,8 +62,6 @@ class SourceClassifierTool:
             return "community"
         if any(domain.endswith(item) for item in REVIEW_DOMAINS):
             return "review"
-        if domain:
-            return "official"
         return "unknown"
 
     @staticmethod

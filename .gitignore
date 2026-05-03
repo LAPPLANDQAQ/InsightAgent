@@ -18,6 +18,7 @@ venv/
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+run_logs/
 
 # OS and IDE files
 .DS_Store

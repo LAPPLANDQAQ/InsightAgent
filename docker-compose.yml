@@ -6,11 +6,20 @@ services:
     env_file: .env
     volumes:
       - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
   frontend:
     build: .
     command: streamlit run frontend/streamlit_app.py --server.port=8501 --server.address=0.0.0.0
     ports:
       - "8501:8501"
     env_file: .env
+    environment:
+      INSIGHT_API_BASE: http://api:8000
     depends_on:
-      - api
+      api:
+        condition: service_healthy

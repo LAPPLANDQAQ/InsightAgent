@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.infra.cache.memory_cache import MemoryCache
 from app.infra.search.base import SearchResult
 from app.schemas.evidence import EvidenceItem
 from app.tools.dedup import dedupe_search_results, normalize_url
@@ -103,6 +104,34 @@ async def test_extraction_tool_rejects_long_text(fake_llm):
             source_url="https://cursor.com/pricing",
             text="x" * 2001,
         )
+
+
+@pytest.mark.asyncio
+async def test_extraction_tool_reuses_cache(fake_llm):
+    fake_llm.set_response(
+        keyword="Extract concise evidence",
+        response={"evidences": [_evidence().model_dump()]},
+    )
+    tool = ExtractionTool(fake_llm, MemoryCache())
+    first = await tool.run(
+        task_id="task_1",
+        competitor_name="Cursor",
+        dimension="pricing",
+        source_id="src_1",
+        source_url="https://cursor.com/pricing",
+        text="Cursor Pro costs 20 USD per month.",
+    )
+    second = await tool.run(
+        task_id="task_2",
+        competitor_name="Cursor",
+        dimension="pricing",
+        source_id="src_1",
+        source_url="https://cursor.com/pricing",
+        text="Cursor Pro costs 20 USD per month.",
+    )
+    assert first.evidences[0].task_id == "task_1"
+    assert second.evidences[0].task_id == "task_2"
+    assert len(fake_llm.calls) == 1
 
 
 def test_source_classifier_classifies_known_domains():
