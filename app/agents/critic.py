@@ -1,5 +1,6 @@
 """Critic agent."""
 
+import re
 from typing import Any, Literal
 
 from app.agents.base import AgentBase
@@ -69,6 +70,25 @@ class Critic(AgentBase):
                 issues.append(
                     self._issue("invalid_evidence_ref", "analyst", f"invalid refs: {invalid}")
                 )
+        report = str(state.get("final_report") or state.get("draft_report") or "")
+        for ref in sorted(set(re.findall(r"\[(ev_[A-Za-z0-9_\-]+)\]", report))):
+            if ref not in evidence_ids:
+                issues.append(
+                    self._issue("invalid_evidence_ref", "writer", f"invalid report ref: {ref}")
+                )
+        unsupported = [
+            line.strip()
+            for line in report.splitlines()
+            if line.strip().startswith("-") and "[ev_" not in line
+        ]
+        if unsupported:
+            issues.append(
+                self._issue(
+                    "unsupported_claim",
+                    "writer",
+                    f"unsupported claim count: {len(unsupported)}",
+                )
+            )
         return issues
 
     @staticmethod
