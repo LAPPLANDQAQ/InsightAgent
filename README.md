@@ -1,4 +1,47 @@
-# InsightAgent
+# InsightAgent v4
+
+InsightAgent v4 是一个面向竞品调研和公开资料分析的 TODO-driven RAG Research Agent。它保留原有 Planner、Researcher、Analyst、Writer、Critic 工作流，同时新增 `ResearchTodo`、`ResearchNote`、Hybrid Retrieval、Harness Runtime、只读 MCP Server 和本地可运行 demo。
+
+## v4 Highlights
+
+- TODO-driven DeepResearch：Planner 会把调研目标拆成可追踪、可重试的 `ResearchTodo`。
+- Evidence-grounded RAG：父子块、Sparse + Dense + RRF 混合检索、ContextBuilder 支撑可追溯证据。
+- Harness Runtime：记录 agent/tool events，提供 policy、metrics、replay。
+- MCP Server：只暴露安全只读工具，不提供 shell、任意 SQL、任意写文件或任意 HTTP fetch。
+- Evaluation：检索指标、引用有效性、维度覆盖率、RAGAs-style 本地规则评估。
+
+## v4 本地 Demo
+
+```bash
+python examples/rag_research_demo.py
+python examples/mcp_stdio_demo.py
+python examples/harness_replay_demo.py
+```
+
+## v4 Feature Flags
+
+```bash
+ENABLE_RAG_RESEARCH=false
+RAG_CHUNK_SIZE=800
+RAG_CHUNK_OVERLAP=120
+RAG_SPARSE_TOP_K=8
+RAG_DENSE_TOP_K=8
+RAG_FINAL_TOP_K=5
+ENABLE_HARNESS=true
+ENABLE_MCP_SERVER=true
+```
+
+## v4 Metrics
+
+| 指标 | 目标值 | 实测值 |
+|---|---:|---|
+| RAG Hit@5 | >= 0.90 | TBD |
+| MRR | >= 0.85 | TBD |
+| Citation Validity | >= 95% | TBD |
+| Dimension Coverage | >= 90% | TBD |
+| TODO Completion Rate | >= 95% | TBD |
+
+---
 
 InsightAgent 是一个面向竞品调研和公开资料分析的多 Agent 系统。用户输入赛道、竞品和分析维度后，系统会自动规划调研任务、搜索公开信息、抓取网页、抽取证据、生成分析结论，并在前端输出可阅读的调研文档、维度覆盖雷达图和质量数据。
 
