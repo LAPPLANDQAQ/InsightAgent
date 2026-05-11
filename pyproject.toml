@@ -42,6 +42,20 @@ select = ["E", "F", "I", "N", "W", "B"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = [
+  "data*",
+  "logs*",
+  "frontend*",
+  "run_logs*",
+  "scripts*",
+  "tests*",
+  "docs*",
+  "examples*",
+]
+
 [tool.mypy]
 python_version = "3.12"
 warn_unused_ignores = true
