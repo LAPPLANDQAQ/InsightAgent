@@ -12,6 +12,7 @@ class WorkflowState(TypedDict, total=False):
     requested_competitors: list[str]
     requested_dimensions: list[str]
     competitors: list[dict[str, Any]]
+    fetched_pages: list[dict[str, Any]]
     plan: dict[str, Any]
     analysis: dict[str, Any]
     draft_report: str
@@ -25,3 +26,12 @@ class WorkflowState(TypedDict, total=False):
     sufficiency_threshold: float
     issues: list[str]
     token_usage: dict[str, Any]
+    research_todos: list[dict[str, Any]]
+    research_strategies: list[dict[str, Any]]
+    research_notes: list[dict[str, Any]]
+    rag_parent_docs: list[dict[str, Any]]
+    rag_chunks: list[dict[str, Any]]
+    retrieved_chunks: list[dict[str, Any]]
+    rag_metrics: dict[str, Any]
+    agent_metrics: dict[str, Any]
+    harness_metrics: dict[str, Any]

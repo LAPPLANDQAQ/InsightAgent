@@ -14,8 +14,12 @@ def merge_state(state: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]
         Merged state.
     """
     merged = {**state, **update}
-    if "issues" in state or "issues" in update:
-        merged["issues"] = list(state.get("issues", [])) + list(update.get("issues", []))
+    for key in ("issues", "research_notes", "retrieved_chunks"):
+        if key in state or key in update:
+            merged[key] = list(state.get(key, [])) + list(update.get(key, []))
+    for key in ("research_todos", "rag_metrics", "agent_metrics", "harness_metrics"):
+        if key in update:
+            merged[key] = update[key]
     return merged
 
 
