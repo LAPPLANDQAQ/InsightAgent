@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: test
+      DEEPSEEK_API_KEY: dummy
+      ENABLE_RAG_RESEARCH: "false"
+      ENABLE_HARNESS: "true"
+      ENABLE_MCP_SERVER: "true"
+      ENABLE_RERANKER: "false"
+      ENABLE_QUERY_REWRITE: "false"
+      ENABLE_HYDE: "false"
+      ENABLE_CRAG: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff
+        run: python -m ruff check app tests examples scripts frontend
+
+      - name: Mypy
+        run: python -m mypy app --ignore-missing-imports
+
+      - name: Pytest
+        run: python -m pytest -q
+
+      - name: Demo smoke
+        run: |
+          python examples/rag_research_demo.py
+          python examples/mcp_stdio_demo.py
+          python examples/harness_replay_demo.py
