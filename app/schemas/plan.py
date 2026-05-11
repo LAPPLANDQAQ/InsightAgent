@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.research_todo import ResearchTodo
+
 
 class ResearchPlan(BaseModel):
     """Planner output describing the research scope."""
@@ -13,6 +15,7 @@ class ResearchPlan(BaseModel):
     required_fields: dict[str, list[str]]
     assumptions: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
+    research_todos: list[ResearchTodo] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def check_required_fields_match_dimensions(self) -> "ResearchPlan":
