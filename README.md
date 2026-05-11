@@ -71,7 +71,7 @@ InsightAgent 是一个面向竞品调研和公开资料分析的多 Agent 系统
 ## 架构边界
 
 ```text
-api -> services -> graph -> agents -> tools -> infra
+api -> services -> graph -> agents -> tools/rag/harness/mcp_server -> infra
 ```
 
 关键约束：
@@ -88,13 +88,16 @@ app/
   api/          FastAPI 路由
   services/     任务编排和状态管理
   graph/        LangGraph 工作流
-  agents/       Planner / Researcher / Analyst / Writer / Critic
+  agents/       Planner / Researcher / RAG agents / Analyst / Writer / Critic
+  rag/          RAG Research Engine
+  harness/      Harness Runtime
+  mcp_server/   安全只读 MCP server
   tools/        搜索、抓取、抽取、分类和充分性评估
   infra/        LLM、搜索 Provider、抓取、缓存、数据库和日志
 frontend/       Streamlit 前端
-scripts/        演示缓存预热和真实 smoke 脚本
+scripts/        演示缓存预热、真实 smoke 和本地评估脚本
 tests/          架构、单元、集成和 E2E 测试
-docs/           规约、审查记录和修复报告
+docs/           架构、RAG、Harness、MCP、评估和历史记录
 ```
 
 ## 快速开始
@@ -283,9 +286,9 @@ docker compose down
 完整验证：
 
 ```bash
-python -m ruff check app/ tests/ frontend/streamlit_app.py
-python -m mypy app/ --ignore-missing-imports
-python -m pytest tests/architecture/ tests/unit/ tests/integration/ tests/e2e/ -v
+python -m ruff check app tests examples scripts frontend
+python -m mypy app --ignore-missing-imports
+python -m pytest -q
 ```
 
 ## 演示建议
@@ -327,6 +330,13 @@ curl http://127.0.0.1:8000/api/tasks/{task_id}/report
 
 ## 更新日志
 
+### 2026-05-11
+
+- 升级为 InsightAgent v4：新增 TODO-driven DeepResearch、Evidence-grounded RAG、Harness Runtime、MCP Server 和评估指标。
+- 新增 feature-flagged RAG workflow，默认保留旧流程，设置 `ENABLE_RAG_RESEARCH=true` 后启用新链路。
+- 新增本地 fake-data demos：RAG research、MCP stdio、Harness replay。
+- 新增严格验收测试，当前 `python -m pytest -q` 为 120 passed。
+
 ### 2026-05-03
 
 - 新增前端调研结果输出：Markdown 文档预览、Markdown 下载、维度证据覆盖雷达图、质量数据面板。
@@ -337,6 +347,11 @@ curl http://127.0.0.1:8000/api/tasks/{task_id}/report
 
 ## 重要文档
 
+- v4 架构说明：[docs/architecture.md](docs/architecture.md)
+- RAG 引擎说明：[docs/rag_engine.md](docs/rag_engine.md)
+- Harness Runtime：[docs/harness_runtime.md](docs/harness_runtime.md)
+- MCP Server：[docs/mcp_server.md](docs/mcp_server.md)
+- 评估指标：[docs/evaluation.md](docs/evaluation.md)
 - 执行规约：[docs/InsightAgent_Codex执行规约_v6_审查修复版.md](docs/InsightAgent_Codex执行规约_v6_审查修复版.md)
 - 首次修复报告：[docs/first_issue_fix_report_2026-05-03.md](docs/first_issue_fix_report_2026-05-03.md)
 - 历史审查问题：[docs/issues_found_2026-05-02.md](docs/issues_found_2026-05-02.md)
