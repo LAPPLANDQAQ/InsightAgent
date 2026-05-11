@@ -23,5 +23,17 @@ def collect_harness_metrics(
     }
 
 
+class MetricsCollector:
+    """Collect harness metrics from events and workflow state."""
+
+    def collect(
+        self,
+        events: list[HarnessEvent],
+        state: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return harness metrics for events and state."""
+        return collect_harness_metrics(events, state)
+
+
 def _rate(numerator: int, denominator: int) -> float:
     return 0.0 if denominator <= 0 else max(numerator, 0) / denominator
