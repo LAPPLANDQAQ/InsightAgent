@@ -1,5 +1,6 @@
 """RAGAs-style deterministic evaluation."""
 
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from app.rag.evaluation.citation_metrics import citation_validity
@@ -47,7 +48,12 @@ def build_report(cases: list[dict[str, Any]]) -> dict[str, Any]:
     for key in ("faithfulness", "answer_relevance", "context_precision", "citation_validity"):
         values = [item["scores"][key] for item in evaluated]
         summary[key] = 0.0 if not values else sum(values) / len(values)
-    return {"summary": summary, "cases": evaluated, "notes": ["rule_based_no_external_api"]}
+    return {
+        "summary": summary,
+        "cases": evaluated,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "notes": ["rule_based_no_external_api"],
+    }
 
 
 def _token_overlap(question: str, answer: str) -> float:
