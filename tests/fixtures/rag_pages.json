@@ -1,0 +1,20 @@
+[
+  {
+    "source_id": "cursor_pricing",
+    "source_url": "https://cursor.com/pricing",
+    "title": "Cursor Pricing",
+    "text": "Cursor pricing includes a Pro plan for coding teams.",
+    "competitor_name": "Cursor",
+    "dimension": "pricing",
+    "todo_id": "todo_cursor_pricing_1"
+  },
+  {
+    "source_id": "copilot_features",
+    "source_url": "https://github.com/features/copilot",
+    "title": "GitHub Copilot Features",
+    "text": "GitHub Copilot provides code completion and chat features.",
+    "competitor_name": "GitHub Copilot",
+    "dimension": "features",
+    "todo_id": "todo_github_copilot_features_5"
+  }
+]
