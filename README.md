@@ -336,6 +336,8 @@ curl http://127.0.0.1:8000/api/tasks/{task_id}/report
 - 新增 feature-flagged RAG workflow，默认保留旧流程，设置 `ENABLE_RAG_RESEARCH=true` 后启用新链路。
 - 新增本地 fake-data demos：RAG research、MCP stdio、Harness replay。
 - 新增严格验收测试，当前 `python -m pytest -q` 为 120 passed。
+- 修复首次运行验收问题：`pip install -e ".[dev]"` 可正常安装，RAG feature flag integration 测试已隔离。
+- 补充 `.env.example` v4 feature flags、GitHub Actions CI，以及与当前 API 一致的 RAG smoke 文档。
 
 ### 2026-05-03
 

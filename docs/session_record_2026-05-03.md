@@ -86,6 +86,60 @@ python -m pytest -q
 - Pytest：120 passed
 - 仅有本机 `.pytest_cache` 写入权限 warning，不影响测试结果。
 
+## 首次运行验收修复
+
+首次运行验收发现的问题已按小提交补齐：
+
+```text
+35a3a2d chore(gitignore): ignore editable install metadata
+bab9ef4 docs(rag): align smoke example with current API
+866c192 ci: add GitHub Actions validation workflow
+5749d46 docs(env): document v4 feature flags
+209ce87 fix(tests): isolate feature-flagged workflow fixtures
+4ab60a2 fix(packaging): configure setuptools package discovery
+```
+
+修复内容：
+
+- `pyproject.toml` 增加显式 setuptools package discovery，仅打包 `app*`，解决 `pip install -e ".[dev]"` flat-layout 失败。
+- legacy integration fixture 显式固定 `enable_rag_research=False`，避免外部环境变量影响旧 workflow 测试。
+- `.env.example` 补齐 v4 RAG、Harness、MCP 和可选检索增强 flags。
+- 新增 `.github/workflows/ci.yml`，在 GitHub 上自动运行 install、ruff、mypy、pytest 和 demo smoke。
+- `docs/rag_engine.md` 的本地 smoke 示例已同步当前真实 API。
+- `.gitignore` 忽略 editable install 生成的 `*.egg-info/`。
+
+修复后已执行并通过：
+
+```powershell
+python -m pip install --upgrade pip
+pip install -e ".[dev]"
+python -m ruff check app tests examples scripts frontend
+python -m mypy app --ignore-missing-imports
+python -m pytest -q
+python -m pytest tests/unit -q
+python -m pytest tests/integration -q
+python -m pytest tests/evaluation -q
+python -m pytest tests/harness -q
+python -m pytest tests/mcp -q
+python -m pytest tests/architecture -q
+python -m pytest tests/e2e -q
+python examples/rag_research_demo.py
+python examples/mcp_stdio_demo.py
+python examples/harness_replay_demo.py
+```
+
+RAG feature flag 复验：
+
+```powershell
+$env:ENABLE_RAG_RESEARCH='false'
+python -m pytest tests/integration -q
+
+$env:ENABLE_RAG_RESEARCH='true'
+python -m pytest tests/integration -q -k "rag or feature or workflow"
+```
+
+结果均为 PASS。
+
 ## 可运行 demo
 
 ```powershell
@@ -100,4 +154,4 @@ python examples/harness_replay_demo.py
 - `ENABLE_RAG_RESEARCH=false` 时默认保留旧 workflow。
 - `ENABLE_RAG_RESEARCH=true` 时启用新 RAG workflow。
 - MCP 只暴露安全只读工具，不暴露 shell、任意 SQL、任意文件写入或任意 HTTP fetch。
-- 推送前本地仅有本文件和 README 整理改动需要提交。
+- README 指标仍保持目标值和 `TBD` 实测值分离，未写入未实测数字。
