@@ -10,6 +10,8 @@ import httpx
 import streamlit as st
 import streamlit.components.v1 as components
 
+from frontend.components.evidence_viewer import citation_summary
+
 API_BASE = os.getenv("INSIGHT_API_BASE", "http://127.0.0.1:8000")
 HTTP_CLIENT = httpx.Client(
     timeout=20.0,
@@ -267,6 +269,8 @@ def _render_report_result(report: dict[str, Any]) -> None:
     with radar_tab:
         _render_radar_chart(quality_metrics)
     with quality_tab:
+        st.markdown("#### 引用摘要")
+        st.json(citation_summary(markdown, quality_metrics.get("evidences") or []))
         st.json(quality_metrics)
 
 
