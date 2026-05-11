@@ -156,6 +156,20 @@ def build_graph(
     Returns:
         Configured workflow runner.
     """
+    if getattr(getattr(container, "settings", None), "enable_rag_research", False):
+        return FeatureFlaggedRAGWorkflowRunner(
+            [
+                container.planner,
+                container.research_router,
+                container.rag_indexer,
+                container.rag_researcher,
+                container.task_summarizer,
+                container.analyst,
+                container.writer,
+                container.critic,
+            ],
+            on_stage=on_stage,
+        )
     return WorkflowRunner(
         [
             container.planner,
@@ -166,3 +180,42 @@ def build_graph(
         ],
         on_stage=on_stage,
     )
+
+
+class FeatureFlaggedRAGWorkflowRunner(WorkflowRunner):
+    """Workflow runner for the feature-flagged v4 RAG path."""
+
+    def _build(self) -> Any:
+        graph = StateGraph(WorkflowState)
+        stage_order = {
+            "planner": 0,
+            "research_router": 1,
+            "rag_indexer": 2,
+            "rag_researcher": 3,
+            "task_summarizer": 4,
+            "analyst": 5,
+            "writer": 6,
+            "critic": 7,
+            "finalize": 8,
+        }
+        total = len(stage_order)
+        for agent in self.agents:
+            graph.add_node(
+                agent.name,
+                cast(Any, self._agent_node(agent, stage_order[agent.name], total)),
+            )
+        graph.add_node(
+            "finalize",
+            cast(Any, self._plain_node("finalize", finalize_report, stage_order, total)),
+        )
+        graph.set_entry_point("planner")
+        graph.add_edge("planner", "research_router")
+        graph.add_edge("research_router", "rag_indexer")
+        graph.add_edge("rag_indexer", "rag_researcher")
+        graph.add_edge("rag_researcher", "task_summarizer")
+        graph.add_edge("task_summarizer", "analyst")
+        graph.add_edge("analyst", "writer")
+        graph.add_edge("writer", "critic")
+        graph.add_edge("critic", "finalize")
+        graph.add_edge("finalize", END)
+        return graph.compile()

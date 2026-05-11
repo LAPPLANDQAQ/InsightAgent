@@ -71,6 +71,27 @@ class Settings(BaseSettings):
     max_search_rounds_per_competitor: int = Field(default=3, ge=1, le=6)
     sufficiency_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
     enable_llm_critic: bool = False
+    enable_rag_research: bool = False
+    rag_chunk_size: int = Field(default=800, ge=100)
+    rag_chunk_overlap: int = Field(default=120, ge=0)
+    rag_sparse_top_k: int = Field(default=8, ge=1)
+    rag_dense_top_k: int = Field(default=8, ge=1)
+    rag_final_top_k: int = Field(default=5, ge=1)
+    rag_rrf_k: int = Field(default=60, ge=1)
+    embedding_provider: str = "fake"
+    enable_harness: bool = True
+    harness_trace_payload_limit: int = Field(default=1000, ge=100)
+    harness_max_tool_calls_per_task: int = Field(default=50, ge=1)
+    harness_require_approval_for_high_risk: bool = True
+    enable_mcp_server: bool = True
+    mcp_transport: Literal["stdio"] = "stdio"
+    mcp_http_auth_token: str = ""
+    mcp_allow_write_tools: bool = False
+    mcp_allow_localhost: bool = False
+    enable_reranker: bool = False
+    enable_query_rewrite: bool = False
+    enable_hyde: bool = False
+    enable_crag: bool = False
 
     max_heavy_calls_per_task: int = Field(default=8, ge=1, le=20)
     max_heavy_tokens_per_task: int = Field(default=35000, ge=1000)

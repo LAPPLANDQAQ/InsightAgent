@@ -3,7 +3,11 @@
 from app.agents.analyst import Analyst
 from app.agents.critic import Critic
 from app.agents.planner import Planner
+from app.agents.rag_indexer import RAGIndexer
+from app.agents.rag_researcher import RAGResearcher
+from app.agents.research_router import ResearchRouter
 from app.agents.researcher import Researcher
+from app.agents.task_summarizer import TaskSummarizer
 from app.agents.writer import Writer
 from app.config import Settings
 from app.infra.cache.memory_cache import MemoryCache
@@ -58,6 +62,15 @@ class Container:
         self.analyst = Analyst(self.llm)
         self.writer = Writer(self.llm)
         self.critic = Critic(self.llm, settings.enable_llm_critic)
+        self.research_router = ResearchRouter()
+        self.rag_indexer = RAGIndexer(settings.rag_chunk_size, settings.rag_chunk_overlap)
+        self.rag_researcher = RAGResearcher(
+            sparse_top_k=settings.rag_sparse_top_k,
+            dense_top_k=settings.rag_dense_top_k,
+            final_top_k=settings.rag_final_top_k,
+            rrf_k=settings.rag_rrf_k,
+        )
+        self.task_summarizer = TaskSummarizer()
 
     def _search_providers(self) -> list[SearchProvider]:
         providers: list[SearchProvider] = []

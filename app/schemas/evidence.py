@@ -17,6 +17,8 @@ class EvidenceItem(BaseModel):
     quote: str = Field(max_length=200)
     confidence: float = Field(ge=0.0, le=1.0)
     extracted_at: str
+    todo_id: str | None = None
+    chunk_id: str | None = None
 
 
 class EvidenceLite(BaseModel):
