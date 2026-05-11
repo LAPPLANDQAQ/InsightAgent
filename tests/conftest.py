@@ -43,7 +43,7 @@ def stub_fetch():
 @pytest.fixture
 def container_with_stubs(fake_llm, stub_search, stub_fetch):
     """Build a complete offline container for workflow tests."""
-    settings = Settings(app_env="test", cache_backend="memory")
+    settings = Settings(app_env="test", cache_backend="memory", enable_rag_research=False)
     cache = MemoryCache()
     search_service = SearchService([stub_search], cache)
     search_tool = SearchTool(search_service)
