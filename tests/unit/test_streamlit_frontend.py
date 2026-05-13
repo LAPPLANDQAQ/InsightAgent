@@ -3,6 +3,7 @@
 import httpx
 
 from frontend.components.task_form import is_active_task_running, should_disable_form
+from frontend.i18n import t
 from frontend.utils import (
     MAX_CONSECUTIVE_POLL_FAILURES,
     ReportNotReadyError,
@@ -158,3 +159,27 @@ def test_radar_svg_includes_escaped_table():
     assert "Needs Improvement" in svg
     assert "&lt;pricing&gt;" in svg
     assert "<pricing>" not in svg
+
+
+def test_i18n_resume_polling_zh_is_real_chinese():
+    assert t("resume_polling", "zh") == "恢复轮询"
+
+
+def test_i18n_task_finished_without_report_zh_is_not_english_fallback():
+    zh = t("task_finished_without_report", "zh")
+    en = t("task_finished_without_report", "en")
+    assert zh != en
+    assert "请新建任务后重试" in zh
+
+
+def test_i18n_backend_request_failed_zh_is_real_chinese():
+    zh = t("backend_request_failed", "zh")
+    assert "后端" in zh
+
+
+def test_i18n_falls_back_to_english_for_missing_language():
+    assert t("brand_subtitle", "fr") == "Competitive Analysis"
+
+
+def test_i18n_returns_key_for_unknown_key():
+    assert t("nonexistent_key", "en") == "nonexistent_key"

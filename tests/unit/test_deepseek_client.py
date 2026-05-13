@@ -278,3 +278,74 @@ async def test_deepseek_client_bounds_light_concurrency():
     )
 
     assert fake.completions.max_active == 1
+
+
+class AsyncCloseClient:
+    """Fake client with async aclose."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class SyncCloseClient:
+    """Fake client with sync close."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class NoCloseClient:
+    """Fake client with no close method."""
+
+    def __init__(self) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_aclose_awaits_async_aclose():
+    fake = AsyncCloseClient()
+    client = DeepSeekClient(
+        api_key="fake",
+        base_url="https://api.deepseek.test/v1",
+        heavy_model="deepseek-v4-pro",
+        light_model="deepseek-v4-flash",
+        fallback_model="deepseek-v4-flash",
+        client=fake,
+    )
+    await client.aclose()
+    assert fake.closed
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_aclose_calls_sync_close():
+    fake = SyncCloseClient()
+    client = DeepSeekClient(
+        api_key="fake",
+        base_url="https://api.deepseek.test/v1",
+        heavy_model="deepseek-v4-pro",
+        light_model="deepseek-v4-flash",
+        fallback_model="deepseek-v4-flash",
+        client=fake,
+    )
+    await client.aclose()
+    assert fake.closed
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_aclose_noop_when_no_close_method():
+    fake = NoCloseClient()
+    client = DeepSeekClient(
+        api_key="fake",
+        base_url="https://api.deepseek.test/v1",
+        heavy_model="deepseek-v4-pro",
+        light_model="deepseek-v4-flash",
+        fallback_model="deepseek-v4-flash",
+        client=fake,
+    )
+    await client.aclose()  # should not raise

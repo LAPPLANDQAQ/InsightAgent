@@ -1,5 +1,7 @@
 """Dependency container tests."""
 
+import pytest
+
 import app.container as container_module
 from app.config import Settings
 from app.container import Container
@@ -58,3 +60,37 @@ def test_container_passes_llm_concurrency(monkeypatch):
     )
 
     assert captured == {"heavy": 1, "light": 3}
+
+
+@pytest.mark.asyncio
+async def test_container_aclose_closes_llm_and_fetch_client(monkeypatch):
+    closed_llm = False
+    closed_fetch = False
+
+    class FakeLLM:
+        def __init__(self, **kwargs):
+            pass
+
+        async def aclose(self):
+            nonlocal closed_llm
+            closed_llm = True
+
+    class FakeFetchClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def aclose(self):
+            nonlocal closed_fetch
+            closed_fetch = True
+
+    monkeypatch.setattr(container_module, "DeepSeekClient", FakeLLM)
+    monkeypatch.setattr(container_module, "HttpxFetchClient", FakeFetchClient)
+    monkeypatch.setattr(container_module, "SearchService", lambda *a, **kw: None)
+
+    container = Container(
+        Settings(app_env="test", cache_backend="memory", enable_rag_research=False)
+    )
+    await container.aclose()
+
+    assert closed_llm
+    assert closed_fetch

@@ -69,10 +69,10 @@ def poll_status_fragment() -> None:
         st.session_state.consecutive_failures += 1
         _check_excessive_failures()
         return
-    except Exception as exc:
-        st.session_state.last_error = str(exc)
+    except Exception:
+        st.session_state.last_error = t("backend_request_failed")
         st.session_state.polling_active = False
-        st.error(f"{t('unexpected_error')} {exc}")
+        st.error(t("backend_request_failed"))
         return
 
     st.session_state.last_status = status
@@ -94,8 +94,8 @@ def poll_status_fragment() -> None:
         try:
             report = api_get_report_with_retries(task_id)
             st.session_state.report_data = report
-        except Exception as exc:
-            st.session_state.last_error = str(exc)
+        except Exception:
+            st.session_state.last_error = t("report_not_ready")
 
         st.rerun()
 

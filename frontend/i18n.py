@@ -177,9 +177,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "task_failed": {"en": "Task failed.", "zh": "任务失败"},
     "task_finished_without_report": {
         "en": "Task ended without a report. Start a new task and try again.",
-        "zh": "Task ended without a report. Start a new task and try again.",
+        "zh": "任务已结束，但报告尚不可用。请新建任务后重试。",
     },
-    "resume_polling": {"en": "Resume Polling", "zh": "Resume Polling"},
+    "resume_polling": {"en": "Resume Polling", "zh": "恢复轮询"},
     "try_again": {"en": "Try Again", "zh": "重试"},
     "system_at_capacity": {
         "en": "System is at capacity. Please wait 30 seconds and try again.",
@@ -212,6 +212,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "report_still_not_ready": {
         "en": "Report is still not ready after several attempts. Please refresh later.",
         "zh": "多次尝试后报告仍未就绪，请稍后刷新",
+    },
+    "backend_request_failed": {
+        "en": "Backend request failed. Check that the API server is running.",
+        "zh": "后端请求失败。请检查 API 服务是否正在运行",
     },
 }
 

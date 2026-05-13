@@ -128,7 +128,7 @@ def _render_sidebar() -> None:
 
         st.divider()
         st.markdown(f"### {t('about')}")
-        st.caption("**InsightAgent** v4.0")
+        st.caption("**InsightAgent** v4.0.2")
         st.caption(t("about_desc"))
         st.caption("FastAPI + LangGraph + Streamlit")
 
@@ -231,8 +231,8 @@ def _handle_submit(form_data: dict[str, Any]) -> None:
         else:
             st.error(f"{t('submission_failed')} HTTP {exc.response.status_code}")
         return
-    except Exception as exc:
-        st.error(f"{t('failed_create_task')} {exc}")
+    except Exception:
+        st.error(t("backend_request_failed"))
         return
     finally:
         st.session_state.form_disabled = False

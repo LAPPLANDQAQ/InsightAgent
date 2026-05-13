@@ -19,8 +19,11 @@ IssueType = Literal[
 TargetStage = Literal["researcher", "analyst", "writer"]
 METADATA_BULLET_PREFIXES = (
     "- 竞品:",
+    "- 竞品：",
     "- 维度:",
+    "- 维度：",
     "- 证据:",
+    "- 证据：",
     "- Competitors:",
     "- Dimensions:",
     "- Evidence:",

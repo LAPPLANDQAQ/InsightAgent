@@ -308,3 +308,15 @@ async def test_researcher_runs_dimension_extraction_concurrently_and_keeps_succe
     assert {evidence["dimension"] for evidence in evidences} == {"pricing", "features"}
     assert any("token=[REDACTED]" in issue for issue in result["issues"])
     assert "sk-secret" not in " ".join(result["issues"])
+
+
+def test_critic_ignores_chinese_metadata_bullets_with_full_width_colon():
+    report = "\n".join(
+        [
+            "- 竞品：Cursor",
+            "- 维度：定价",
+            "- 证据：[ev_1]",
+        ]
+    )
+    issues = Critic()._rule_issues(_state_with_report(report))
+    assert not [issue for issue in issues if issue.issue_type == "unsupported_claim"]

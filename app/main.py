@@ -27,6 +27,12 @@ async def lifespan(app: FastAPI):
         container = getattr(app.state, "container", None)
         if container is not None and hasattr(container, "aclose"):
             await container.aclose()
+        engine = getattr(app.state, "engine", None)
+        if engine is not None:
+            try:
+                engine.dispose()
+            except Exception:
+                logger.warning("engine_dispose_failed", exc_info=True)
 
 
 def create_app() -> FastAPI:

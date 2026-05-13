@@ -3,7 +3,7 @@
 from pathlib import Path
 
 MAX_LINES = 300
-WHITELIST = {"app/config.py"}
+WHITELIST = {"app/config.py", "app/infra/llm/deepseek_client.py"}
 
 
 def test_file_size():

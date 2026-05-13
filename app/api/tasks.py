@@ -26,7 +26,7 @@ def get_task_service(request: Request) -> Any:
 TaskServiceDep = Annotated[Any, Depends(get_task_service)]
 
 
-@router.post("/tasks")
+@router.post("/tasks", status_code=status.HTTP_201_CREATED)
 async def create_task(req: CreateTaskRequest, svc: TaskServiceDep) -> dict[str, str]:
     """Create a research task.
 
@@ -88,7 +88,7 @@ async def cancel_task(task_id: str, svc: TaskServiceDep) -> dict[str, str]:
     accepted = await svc.cancel(task_id)
     if not accepted:
         raise HTTPException(status_code=404, detail="task not found or not running")
-    return {"task_id": task_id, "status": "CANCELLING"}
+    return {"task_id": task_id, "status": "FAILED", "detail": "task cancellation accepted"}
 
 
 @router.get("/tasks/{task_id}/report", response_model=ReportResponse)

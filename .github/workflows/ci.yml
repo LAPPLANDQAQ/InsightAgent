@@ -40,7 +40,8 @@ jobs:
       - name: Pytest
         run: python -m pytest -q
 
-      - name: Demo smoke
+      # Preview compatibility checks for archived/experimental features.
+      - name: Preview demo smoke
         run: |
           python examples/rag_research_demo.py
           python examples/mcp_stdio_demo.py

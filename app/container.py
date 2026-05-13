@@ -82,6 +82,8 @@ class Container:
 
     async def aclose(self) -> None:
         """Close resources owned by the container."""
+        if hasattr(self.llm, "aclose"):
+            await self.llm.aclose()
         await self.fetch_client.aclose()
 
     def _search_providers(self) -> list[SearchProvider]:

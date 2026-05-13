@@ -103,7 +103,7 @@ def test_api_create_status_and_report_with_stub_task(monkeypatch, tmp_path, cont
     status = client.get(f"/api/tasks/{task_id}")
     report = client.get(f"/api/tasks/{task_id}/report")
 
-    assert created.status_code == 200
+    assert created.status_code == 201
     assert status.json()["status"] == "COMPLETED"
     assert report.json()["report_markdown"] == "# final"
 
@@ -170,7 +170,11 @@ def test_api_cancel_running_task_returns_202(monkeypatch, tmp_path, container_wi
     response = client.delete("/api/tasks/task_running")
 
     assert response.status_code == 202
-    assert response.json() == {"task_id": "task_running", "status": "CANCELLING"}
+    assert response.json() == {
+        "task_id": "task_running",
+        "status": "FAILED",
+        "detail": "task cancellation accepted",
+    }
 
 
 def test_api_cancel_unknown_task_returns_404(monkeypatch, tmp_path, container_with_stubs):
@@ -201,3 +205,46 @@ def test_api_queue_full_response_includes_retry_after(
 
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "30"
+
+
+def test_lifespan_shutdown_disposes_engine(monkeypatch, tmp_path):
+    app = _create_test_app(monkeypatch, tmp_path)
+    dispose_called = False
+
+    class FakeEngine:
+        def dispose(self):
+            nonlocal dispose_called
+            dispose_called = True
+
+    app.state.engine = FakeEngine()
+
+    from app.main import lifespan
+
+    async def run_shutdown():
+        async with lifespan(app):
+            pass
+
+    import asyncio
+
+    asyncio.run(run_shutdown())
+    assert dispose_called
+
+
+def test_lifespan_shutdown_handles_engine_dispose_error(monkeypatch, tmp_path):
+    app = _create_test_app(monkeypatch, tmp_path)
+
+    class BrokenEngine:
+        def dispose(self):
+            raise RuntimeError("dispose failed")
+
+    app.state.engine = BrokenEngine()
+
+    from app.main import lifespan
+
+    async def run_shutdown():
+        async with lifespan(app):
+            pass
+
+    import asyncio
+
+    asyncio.run(run_shutdown())  # should not raise

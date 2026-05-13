@@ -1,6 +1,7 @@
 """DeepSeek OpenAI-compatible LLM client."""
 
 import asyncio
+import inspect
 import json
 import re
 from typing import Any, TypeVar
@@ -286,6 +287,17 @@ class DeepSeekClient(LLMClient):
         if first_object:
             return first_object.group(0).strip()
         return None
+
+    async def aclose(self) -> None:
+        """Close the underlying async OpenAI-compatible client."""
+        close = getattr(self._client, "close", None)
+        if close is None:
+            close = getattr(self._client, "aclose", None)
+        if close is None:
+            return
+        result = close()
+        if inspect.isawaitable(result):
+            await result
 
     @staticmethod
     def _diagnostic(content: str) -> str:
