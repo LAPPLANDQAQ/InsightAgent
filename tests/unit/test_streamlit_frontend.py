@@ -2,14 +2,14 @@
 
 import httpx
 
-from frontend.streamlit_app import (
+from frontend.utils import (
     ReportNotReadyError,
-    _get_report_with_retries,
     _is_transient_http_error,
     _poll_timed_out,
     _radar_svg,
     _require_field,
     _stage_index,
+    api_get_report_with_retries,
 )
 
 
@@ -57,7 +57,7 @@ def test_frontend_stage_list_is_english():
 
 
 def test_report_fetch_retries_not_ready(monkeypatch):
-    import frontend.streamlit_app as streamlit_app
+    import frontend.utils as utils_module
 
     calls = 0
 
@@ -73,10 +73,10 @@ def test_report_fetch_retries_not_ready(monkeypatch):
             "quality_metrics": {},
         }
 
-    monkeypatch.setattr(streamlit_app, "_get_report", fake_get_report)
-    monkeypatch.setattr(streamlit_app, "REPORT_RETRY_INTERVAL_SECONDS", 0)
+    monkeypatch.setattr(utils_module, "api_get_report", fake_get_report)
+    monkeypatch.setattr(utils_module, "REPORT_RETRY_INTERVAL_SECONDS", 0)
 
-    report = _get_report_with_retries("task_1")
+    report = api_get_report_with_retries("task_1")
 
     assert report["report_markdown"] == "# report"
     assert calls == 2
