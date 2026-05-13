@@ -6,6 +6,9 @@ from app.agents.base import AgentBase
 from app.infra.llm.base import LLMClient
 from app.schemas.analysis import AnalysisResult, DimensionAnalysis
 from app.schemas.evidence import EvidenceItem, to_lite
+from app.tools.agent_observability import get_agent_logger, redact_issue
+
+logger = get_agent_logger(__name__)
 
 
 class Analyst(AgentBase):
@@ -41,8 +44,12 @@ class Analyst(AgentBase):
                 temperature=0.2,
             )
         except Exception as exc:
+            logger.exception(
+                "analyst_llm_failed",
+                extra={"task_id": state.get("task_id"), "stage": self.name},
+            )
             analysis = self._fallback_analysis(plan, evidences)
-            issues = [f"analyst_fallback: {exc}"]
+            issues = [f"analyst_fallback: {redact_issue(str(exc))}"]
         else:
             assert not isinstance(analysis, str)
             issues = []

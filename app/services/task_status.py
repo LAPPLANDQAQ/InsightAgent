@@ -18,7 +18,10 @@ STAGE_LABELS = {
     "failed": "Failed",
     "completed": "Completed",
 }
-STALE_RUNNING_MESSAGE = "Task execution context was lost after service restart; marked as failed."
+STALE_RUNNING_MESSAGE = (
+    "Task execution context was lost after service restart; "
+    "last known stage: {stage}; marked as failed."
+)
 
 
 def status_payload(
@@ -28,6 +31,7 @@ def status_payload(
     issues: list,
     progress: float,
     started_at: float | None,
+    structured_issues: list[dict] | None = None,
 ) -> dict:
     """Build a normalized status payload.
 
@@ -50,6 +54,7 @@ def status_payload(
         "progress": clamped,
         "estimated_remaining_seconds": eta,
         "issues": issues,
+        "structured_issues": structured_issues or [],
         "started_monotonic": started_at,
     }
 

@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.schemas.report import ReportResponse
 from app.schemas.task import CreateTaskRequest, TaskStatusResponse
@@ -70,7 +70,25 @@ async def get_task(task_id: str, svc: TaskServiceDep) -> TaskStatusResponse:
         progress=float(info.get("progress", 0.0)),
         estimated_remaining_seconds=info.get("estimated_remaining_seconds"),
         issues=[str(item) for item in info.get("issues", [])],
+        structured_issues=info.get("structured_issues", []),
     )
+
+
+@router.delete("/tasks/{task_id}", status_code=status.HTTP_202_ACCEPTED)
+async def cancel_task(task_id: str, svc: TaskServiceDep) -> dict[str, str]:
+    """Cancel a running task.
+
+    Args:
+        task_id: Task identifier.
+        svc: Task service dependency.
+
+    Returns:
+        Cancellation acknowledgement.
+    """
+    accepted = await svc.cancel(task_id)
+    if not accepted:
+        raise HTTPException(status_code=404, detail="task not found or not running")
+    return {"task_id": task_id, "status": "CANCELLING"}
 
 
 @router.get("/tasks/{task_id}/report", response_model=ReportResponse)

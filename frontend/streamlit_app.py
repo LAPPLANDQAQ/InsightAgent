@@ -17,6 +17,7 @@ from frontend.theme import inject_custom_css
 from frontend.utils import (
     api_create_task,
     api_health_check,
+    clear_task_state,
     init_session_state,
 )
 
@@ -179,6 +180,11 @@ def _render_active_state() -> None:
             st.error(st.session_state.last_error)
             if st.button(t("try_again"), key="retry_report"):
                 _retry_fetch_report()
+        elif st.session_state.get("task_completed"):
+            st.warning(t("task_finished_without_report"))
+            if st.button(t("new_task"), key="new_task_unknown_terminal"):
+                clear_task_state()
+                st.rerun()
         elif st.session_state.get("last_error"):
             st.error(st.session_state.last_error)
         elif st.session_state.get("task_status"):
@@ -203,6 +209,9 @@ def _render_active_state() -> None:
 
 
 def _handle_submit(form_data: dict[str, Any]) -> None:
+    if st.session_state.get("form_disabled"):
+        return
+    st.session_state.form_disabled = True
     try:
         task_id = api_create_task(
             form_data["query"],
@@ -225,6 +234,8 @@ def _handle_submit(form_data: dict[str, Any]) -> None:
     except Exception as exc:
         st.error(f"{t('failed_create_task')} {exc}")
         return
+    finally:
+        st.session_state.form_disabled = False
 
     st.session_state.task_id = task_id
     st.session_state.task_status = "PENDING"

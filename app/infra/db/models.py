@@ -59,7 +59,7 @@ class EvidenceRow(Base):
     evidence_id: Mapped[str] = mapped_column(String(120))
     competitor_name: Mapped[str] = mapped_column(String(255))
     dimension: Mapped[str] = mapped_column(String(120))
-    claim: Mapped[str] = mapped_column(String(160))
+    claim: Mapped[str] = mapped_column(String(240))
     value: Mapped[str] = mapped_column(Text)
     source_id: Mapped[str] = mapped_column(String(120))
     source_url: Mapped[str] = mapped_column(Text)

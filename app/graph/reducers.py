@@ -21,11 +21,25 @@ def merge_state(state: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]
     for key in APPEND_FIELDS:
         if key in state or key in update:
             merged[key] = list(state.get(key, [])) + list(update.get(key, []))
+            if key == "issues":
+                merged[key] = _dedupe_preserve_order(merged[key])
     # These fields represent latest snapshots; node updates intentionally replace prior values.
     for key in OVERWRITE_FIELDS:
         if key in update:
             merged[key] = update[key]
     return merged
+
+
+def _dedupe_preserve_order(items: list[Any]) -> list[Any]:
+    seen: set[str] = set()
+    output: list[Any] = []
+    for item in items:
+        marker = repr(item)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        output.append(item)
+    return output
 
 
 def check_sufficiency(state: dict[str, Any]) -> dict[str, Any]:
@@ -40,6 +54,7 @@ def check_sufficiency(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "current_stage": "sufficiency_check",
         "iteration_count": int(state.get("iteration_count", 0)) + 1,
+        "workflow_loop_count": int(state.get("workflow_loop_count", 0)) + 1,
     }
 
 
@@ -53,6 +68,8 @@ def route_after_sufficiency(state: dict[str, Any]) -> str:
         Next LangGraph node name.
     """
     sufficiency = state.get("sufficiency") or {}
+    if int(state.get("workflow_loop_count", 0)) >= int(state.get("max_iterations", 1)) * 2:
+        return "analyst"
     if sufficiency.get("is_sufficient"):
         return "analyst"
     if int(state.get("iteration_count", 0)) >= int(state.get("max_iterations", 1)):
@@ -70,6 +87,8 @@ def route_after_critic(state: dict[str, Any]) -> str:
         Next LangGraph node name.
     """
     issues = state.get("critic_issues") or []
+    if int(state.get("workflow_loop_count", 0)) >= int(state.get("max_iterations", 1)) * 2:
+        return "finalize"
     if not issues:
         return "finalize"
     if int(state.get("critic_rounds", 0)) >= int(state.get("max_iterations", 1)):

@@ -2,8 +2,12 @@
 
 from pydantic import BaseModel, Field
 
+from app.infra.logger import get_logger
 from app.infra.search.base import SearchResult
+from app.infra.security.redaction import redact_secret_like
 from app.tools.dedup import dedupe_search_results
+
+logger = get_logger(__name__)
 
 
 class SearchToolResult(BaseModel):
@@ -31,13 +35,23 @@ class SearchTool:
         Returns:
             Validated search tool result.
         """
-        if hasattr(self.search_service, "search_with_diagnostics"):
-            results, issues = await self.search_service.search_with_diagnostics(
-                query,
-                max_results=max_results,
+        try:
+            if hasattr(self.search_service, "search_with_diagnostics"):
+                results, issues = await self.search_service.search_with_diagnostics(
+                    query,
+                    max_results=max_results,
+                )
+            else:
+                results = await self.search_service.search(query, max_results=max_results)
+                issues = []
+        except Exception as exc:
+            logger.exception(
+                "search_tool_failed",
+                extra={
+                    "query": redact_secret_like(query),
+                    "error": redact_secret_like(str(exc)),
+                },
             )
-        else:
-            results = await self.search_service.search(query, max_results=max_results)
-            issues = []
+            raise
         deduped = dedupe_search_results(results)[:max_results]
         return SearchToolResult(query=query, results=deduped, total=len(deduped), issues=issues)

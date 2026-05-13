@@ -1,16 +1,20 @@
 """Researcher agent."""
 
+import asyncio
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from app.agents.base import AgentBase
 from app.schemas.evidence import EvidenceItem
 from app.schemas.source import SourceItem
+from app.tools.agent_observability import get_agent_logger, redact_issue
 from app.tools.extraction_tool import ExtractionTool
 from app.tools.search_tool import SearchTool
 from app.tools.source_classifier_tool import SourceClassifierTool
 from app.tools.sufficiency_tool import SufficiencyTool
 from app.tools.webpage_tool import WebpageTool
+
+logger = get_agent_logger(__name__)
 
 
 class Researcher(AgentBase):
@@ -76,13 +80,22 @@ class Researcher(AgentBase):
         sources: list[SourceItem] = []
         evidences: list[EvidenceItem] = []
         issues: list[str] = []
-        queries = plan.get("search_queries", {}).get(competitor_name) or [competitor_name]
-        for query in queries[: self.max_rounds]:
-            try:
-                search_result = await self.search_tool.run(query, max_results=3)
-            except Exception as exc:
-                issues.append(f"search_failed:{competitor_name}:{exc}")
+        queries = (plan.get("search_queries", {}).get(competitor_name) or [competitor_name])[
+            : self.max_rounds
+        ]
+        search_outputs = await asyncio.gather(
+            *(
+                self._run_search_query(task_id, competitor_name, query)
+                for query in queries
+            ),
+            return_exceptions=True,
+        )
+        for query, search_output in zip(queries, search_outputs, strict=False):
+            if isinstance(search_output, BaseException):
+                error = redact_issue(str(search_output))
+                issues.append(f"search_failed:{competitor_name}:{error}")
                 continue
+            search_result = cast(Any, search_output)
             issues.extend(search_result.issues)
             if not search_result.results:
                 issues.append(f"search_empty:{competitor_name}:{query}")
@@ -96,17 +109,51 @@ class Researcher(AgentBase):
                     retrieved_at=datetime.now(UTC).isoformat(),
                 )
                 sources.append(source)
-                page = await self.webpage_tool.run(result.url)
+                try:
+                    page = await self.webpage_tool.run(result.url)
+                except Exception as exc:
+                    logger.exception(
+                        "researcher_fetch_failed",
+                        extra={
+                            "task_id": task_id,
+                            "stage": self.name,
+                            "competitor": competitor_name,
+                            "url": result.url,
+                        },
+                    )
+                    error = redact_issue(str(exc))
+                    issues.append(f"fetch_failed:{competitor_name}:{result.url}:{error}")
+                    continue
                 if page.page.error:
-                    issues.append(f"fetch_failed:{competitor_name}:{result.url}:{page.page.error}")
+                    error = redact_issue(str(page.page.error))
+                    issues.append(f"fetch_failed:{competitor_name}:{result.url}:{error}")
                     continue
                 if not page.page.text.strip():
                     issues.append(f"fetch_empty:{competitor_name}:{result.url}")
                     continue
-                for dimension in plan.get("dimensions", []):
-                    evidence, extract_issues = await self._extract_or_fallback(
-                        task_id, competitor_name, dimension, source, page.page.text, index
-                    )
+                dimensions = list(plan.get("dimensions", []))
+                dimension_outputs = await asyncio.gather(
+                    *(
+                        self._run_dimension_extract(
+                            task_id,
+                            competitor_name,
+                            dimension,
+                            source,
+                            page.page.text,
+                            index,
+                        )
+                        for dimension in dimensions
+                    ),
+                    return_exceptions=True,
+                )
+                for dimension, output in zip(dimensions, dimension_outputs, strict=False):
+                    if isinstance(output, BaseException):
+                        error = redact_issue(str(output))
+                        issues.append(
+                            f"extract_failed:{competitor_name}:{dimension}:{source.url}:{error}"
+                        )
+                        continue
+                    evidence, extract_issues = output
                     evidences.extend(evidence)
                     issues.extend(extract_issues)
         return {
@@ -114,6 +161,51 @@ class Researcher(AgentBase):
             "sources": [source.model_dump() for source in sources],
             "evidences": [evidence.model_dump() for evidence in evidences],
         }, issues
+
+    async def _run_search_query(self, task_id: str, competitor_name: str, query: str):
+        try:
+            return await self.search_tool.run(query, max_results=3)
+        except Exception:
+            logger.exception(
+                "researcher_search_failed",
+                extra={
+                    "task_id": task_id,
+                    "stage": self.name,
+                    "competitor": competitor_name,
+                },
+            )
+            raise
+
+    async def _run_dimension_extract(
+        self,
+        task_id: str,
+        competitor_name: str,
+        dimension: str,
+        source: SourceItem,
+        text: str,
+        index: int,
+    ) -> tuple[list[EvidenceItem], list[str]]:
+        try:
+            return await self._extract_or_fallback(
+                task_id,
+                competitor_name,
+                dimension,
+                source,
+                text,
+                index,
+            )
+        except Exception:
+            logger.exception(
+                "researcher_dimension_extract_failed",
+                extra={
+                    "task_id": task_id,
+                    "stage": self.name,
+                    "competitor": competitor_name,
+                    "dimension": dimension,
+                    "source_id": source.source_id,
+                },
+            )
+            raise
 
     async def _extract_or_fallback(
         self,
@@ -137,7 +229,18 @@ class Researcher(AgentBase):
             if result.evidences:
                 return result.evidences, []
         except Exception as exc:
-            issue = f"extract_failed:{competitor_name}:{dimension}:{source.url}:{exc}"
+            logger.exception(
+                "researcher_extract_failed",
+                extra={
+                    "task_id": task_id,
+                    "stage": self.name,
+                    "competitor": competitor_name,
+                    "dimension": dimension,
+                    "source_id": source.source_id,
+                },
+            )
+            error = redact_issue(str(exc))
+            issue = f"extract_failed:{competitor_name}:{dimension}:{source.url}:{error}"
             fallback = self._fallback_evidence(
                 task_id,
                 competitor_name,

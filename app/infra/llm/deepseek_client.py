@@ -1,5 +1,6 @@
 """DeepSeek OpenAI-compatible LLM client."""
 
+import asyncio
 import json
 import re
 from typing import Any, TypeVar
@@ -30,6 +31,8 @@ class DeepSeekClient(LLMClient):
         light_model: str,
         fallback_model: str,
         client: Any | None = None,
+        max_concurrent_heavy: int = 2,
+        max_concurrent_light: int = 5,
     ) -> None:
         self._models: dict[ModelRole, str] = {
             "heavy": heavy_model,
@@ -41,6 +44,8 @@ class DeepSeekClient(LLMClient):
 
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self._client = client
+        self._heavy_semaphore = asyncio.Semaphore(max_concurrent_heavy)
+        self._light_semaphore = asyncio.Semaphore(max_concurrent_light)
 
     async def invoke(
         self,
@@ -68,26 +73,28 @@ class DeepSeekClient(LLMClient):
         Raises:
             LLMOutputError: Raised when output is empty or schema parsing fails.
         """
-        if schema is None:
-            content = await self._complete(
+        semaphore = self._heavy_semaphore if model_role == "heavy" else self._light_semaphore
+        async with semaphore:
+            if schema is None:
+                content = await self._complete(
+                    prompt=prompt,
+                    model_role=model_role,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    timeout=timeout,
+                )
+                if not content.strip():
+                    raise LLMOutputError("LLM returned empty content")
+                return content
+
+            return await self._invoke_schema(
                 prompt=prompt,
                 model_role=model_role,
+                schema=schema,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 timeout=timeout,
             )
-            if not content.strip():
-                raise LLMOutputError("LLM returned empty content")
-            return content
-
-        return await self._invoke_schema(
-            prompt=prompt,
-            model_role=model_role,
-            schema=schema,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            timeout=timeout,
-        )
 
     async def _invoke_schema(
         self,
@@ -109,7 +116,7 @@ class DeepSeekClient(LLMClient):
             timeout=timeout,
             response_format={"type": "json_object"},
         )
-        parsed = self._parse_schema(content, schema=schema, allow_extract=False)
+        parsed = self._parse_schema(content, schema=schema, allow_extract=True)
         if parsed is not None:
             return parsed
         errors.append(self._diagnostic(content))

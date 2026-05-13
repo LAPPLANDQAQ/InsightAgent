@@ -3,6 +3,7 @@
 import pytest
 
 from app.infra.cache.memory_cache import MemoryCache
+from app.infra.llm.base import ModelRole
 from app.infra.search.base import SearchResult
 from app.schemas.evidence import EvidenceItem
 from app.tools.dedup import dedupe_search_results, normalize_url
@@ -33,6 +34,36 @@ class SearchServiceStub:
     async def search(self, query: str, max_results: int = 5):
         """Delegate to the stub provider."""
         return await self.provider.search(query, max_results)
+
+
+class RecordingLLM:
+    """LLM stub that records full prompts for extraction tests."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def invoke(
+        self,
+        *,
+        prompt: str,
+        model_role: ModelRole,
+        schema=None,
+        max_tokens: int = 2000,
+        temperature: float = 0.3,
+        timeout: float = 30.0,
+    ):
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "model_role": model_role,
+                "schema": schema.__name__ if schema else None,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "timeout": timeout,
+            }
+        )
+        assert schema is not None
+        return schema.model_validate({"evidences": [_evidence().model_dump()]})
 
 
 def _evidence(dimension: str = "pricing") -> EvidenceItem:
@@ -107,16 +138,50 @@ async def test_extraction_tool_uses_llm_schema(fake_llm):
 
 
 @pytest.mark.asyncio
-async def test_extraction_tool_rejects_long_text(fake_llm):
-    with pytest.raises(ValueError, match="2000"):
-        await ExtractionTool(fake_llm).run(
-            task_id="task_1",
-            competitor_name="Cursor",
-            dimension="pricing",
-            source_id="src_1",
-            source_url="https://cursor.com/pricing",
-            text="x" * 2001,
-        )
+async def test_extraction_tool_accepts_long_text_and_truncates_prompt():
+    llm = RecordingLLM()
+
+    result = await ExtractionTool(llm).run(
+        task_id="task_1",
+        competitor_name="Cursor",
+        dimension="pricing",
+        source_id="src_1",
+        source_url="https://cursor.com/pricing",
+        text=("Cursor   Pro costs 20 USD per month. " * 120),
+    )
+
+    prompt_text = str(llm.calls[0]["prompt"]).split("text=", 1)[1]
+    assert len(prompt_text) <= 2000
+    assert "  " not in prompt_text
+    assert result.evidences[0].evidence_id == "ev_1"
+
+
+@pytest.mark.asyncio
+async def test_extraction_tool_cache_key_uses_prepared_text():
+    llm = RecordingLLM()
+    tool = ExtractionTool(llm, MemoryCache())
+    common_prefix = "Cursor Pro pricing evidence " * 120
+
+    first = await tool.run(
+        task_id="task_1",
+        competitor_name="Cursor",
+        dimension="pricing",
+        source_id="src_1",
+        source_url="https://cursor.com/pricing",
+        text=f"{common_prefix} first suffix",
+    )
+    second = await tool.run(
+        task_id="task_2",
+        competitor_name="Cursor",
+        dimension="pricing",
+        source_id="src_1",
+        source_url="https://cursor.com/pricing",
+        text=f"{common_prefix} second suffix",
+    )
+
+    assert len(llm.calls) == 1
+    assert first.evidences[0].task_id == "task_1"
+    assert second.evidences[0].task_id == "task_2"
 
 
 @pytest.mark.asyncio
@@ -165,3 +230,27 @@ def test_sufficiency_tool_reports_missing_dimensions():
     )
     assert not result.is_sufficient
     assert result.missing_dimensions == ["features"]
+
+
+def test_sufficiency_threshold_controls_result_with_missing_diagnostics():
+    two_of_three = SufficiencyTool().run(
+        evidences=[_evidence("pricing"), _evidence("features")],
+        dimensions=["pricing", "features", "ecosystem"],
+        threshold=0.6,
+    )
+    one_of_three = SufficiencyTool().run(
+        evidences=[_evidence("pricing")],
+        dimensions=["pricing", "features", "ecosystem"],
+        threshold=0.6,
+    )
+    stricter = SufficiencyTool().run(
+        evidences=[_evidence("pricing"), _evidence("features")],
+        dimensions=["pricing", "features", "ecosystem"],
+        threshold=0.8,
+    )
+
+    assert two_of_three.score == pytest.approx(2 / 3)
+    assert two_of_three.is_sufficient
+    assert two_of_three.missing_dimensions == ["ecosystem"]
+    assert not one_of_three.is_sufficient
+    assert not stricter.is_sufficient

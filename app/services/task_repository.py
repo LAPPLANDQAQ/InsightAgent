@@ -87,17 +87,27 @@ class TaskRepository:
             if task is None:
                 return {"status": "NOT_FOUND"}
             if task.status == "RUNNING":
+                last_stage = task.current_stage or "unknown"
+                message = STALE_RUNNING_MESSAGE.format(stage=last_stage)
                 task.status = "FAILED"
                 task.current_stage = "failed"
-                task.error_message = STALE_RUNNING_MESSAGE
+                task.error_message = message
                 task.updated_at = datetime.now(UTC)
                 session.commit()
                 return status_payload(
                     status="FAILED",
                     stage="failed",
-                    issues=[STALE_RUNNING_MESSAGE],
+                    issues=[message],
                     progress=1.0,
                     started_at=None,
+                    structured_issues=[
+                        {
+                            "type": "stale_restart",
+                            "severity": "error",
+                            "stage": last_stage,
+                            "message": message,
+                        }
+                    ],
                 )
             progress = 1.0 if task.status in {"COMPLETED", "COMPLETED_WITH_WARNINGS"} else 0.0
             return status_payload(
@@ -113,9 +123,10 @@ class TaskRepository:
         with self.session_factory() as session:
             rows = session.query(Task).filter_by(status="RUNNING").all()
             for task in rows:
+                last_stage = task.current_stage or "unknown"
                 task.status = "FAILED"
                 task.current_stage = "failed"
-                task.error_message = STALE_RUNNING_MESSAGE
+                task.error_message = STALE_RUNNING_MESSAGE.format(stage=last_stage)
                 task.updated_at = datetime.now(UTC)
             if rows:
                 session.commit()

@@ -4,6 +4,9 @@ from typing import Any
 
 from app.agents.base import AgentBase
 from app.infra.llm.base import LLMClient
+from app.tools.agent_observability import get_agent_logger, redact_issue
+
+logger = get_agent_logger(__name__)
 
 
 class Writer(AgentBase):
@@ -32,8 +35,12 @@ class Writer(AgentBase):
                 temperature=0.2,
             )
         except Exception as exc:
+            logger.exception(
+                "writer_llm_failed",
+                extra={"task_id": state.get("task_id"), "stage": self.name},
+            )
             report = self._fallback_report(state)
-            issues = [f"writer_fallback: {exc}"]
+            issues = [f"writer_fallback: {redact_issue(str(exc))}"]
         else:
             issues = []
         return {
@@ -57,25 +64,36 @@ class Writer(AgentBase):
         plan = state.get("plan") or {}
         analysis = state.get("analysis") or {}
         lines = [
-            f"# {plan.get('market', '竞品分析')} 调研报告",
+            f"# {plan.get('market', 'Competitive Analysis')} Research Report",
             "",
-            "## 调研范围",
-            f"- 竞品：{', '.join(plan.get('competitors', []))}",
-            f"- 维度：{', '.join(plan.get('dimensions', []))}",
+            "## Scope",
+            f"- Competitors: {', '.join(plan.get('competitors', []))}",
+            f"- Dimensions: {', '.join(plan.get('dimensions', []))}",
             "",
-            "## 市场摘要",
-            str(analysis.get("market_summary", "暂无摘要")),
+            "## Market Summary",
+            str(analysis.get("market_summary", "No summary available.")),
             "",
-            "## 维度分析",
+            "## Dimension Analysis",
         ]
         for item in analysis.get("dimension_analysis", []):
-            refs = ", ".join(item.get("evidence_refs", []))
+            refs = [
+                f"[{str(ref).strip()}]"
+                for ref in item.get("evidence_refs", [])
+                if str(ref).strip()
+            ]
+            evidence_line = ", ".join(refs) if refs else "not available"
             lines.extend(
                 [
                     f"### {item.get('dimension', '')}",
                     item.get("comparison_summary", ""),
-                    f"- 证据：{refs}",
+                    f"- Evidence: {evidence_line}",
                 ]
             )
-        lines.extend(["", "## 建议", str(analysis.get("recommendation", "继续补充证据。"))])
+        lines.extend(
+            [
+                "",
+                "## Recommendation",
+                str(analysis.get("recommendation", "Continue collecting evidence.")),
+            ]
+        )
         return "\n".join(lines)

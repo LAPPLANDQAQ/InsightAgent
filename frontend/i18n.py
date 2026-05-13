@@ -175,6 +175,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "about_time": {"en": "About", "zh": "约"},
     # --- Task states ---
     "task_failed": {"en": "Task failed.", "zh": "任务失败"},
+    "task_finished_without_report": {
+        "en": "Task ended without a report. Start a new task and try again.",
+        "zh": "Task ended without a report. Start a new task and try again.",
+    },
+    "resume_polling": {"en": "Resume Polling", "zh": "Resume Polling"},
     "try_again": {"en": "Try Again", "zh": "重试"},
     "system_at_capacity": {
         "en": "System is at capacity. Please wait 30 seconds and try again.",

@@ -3,6 +3,10 @@
 from pydantic import BaseModel
 
 from app.infra.fetch.base import FetchClient, FetchResult
+from app.infra.logger import get_logger
+from app.infra.security.redaction import redact_secret_like
+
+logger = get_logger(__name__)
 
 
 class WebpageToolResult(BaseModel):
@@ -28,5 +32,12 @@ class WebpageTool:
         Returns:
             Validated web page tool result.
         """
-        page = await self.fetch_client.fetch(url, timeout=timeout)
+        try:
+            page = await self.fetch_client.fetch(url, timeout=timeout)
+        except Exception as exc:
+            logger.exception(
+                "webpage_tool_failed",
+                extra={"url": redact_secret_like(url), "error": redact_secret_like(str(exc))},
+            )
+            raise
         return WebpageToolResult(page=page, ok=page.error is None)

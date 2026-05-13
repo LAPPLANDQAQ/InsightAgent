@@ -6,6 +6,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 TaskStatus = Literal["PENDING", "RUNNING", "COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED"]
 TaskListItem = Annotated[str, Field(min_length=1, max_length=80)]
+IssueSeverity = Literal["info", "warning", "error"]
+
+
+class IssueDetail(BaseModel):
+    """Structured task issue detail."""
+
+    type: str = "runtime"
+    severity: IssueSeverity = "warning"
+    stage: str | None = None
+    message: str
 
 
 class CreateTaskRequest(BaseModel):
@@ -42,3 +52,4 @@ class TaskStatusResponse(BaseModel):
     progress: float = 0.0
     estimated_remaining_seconds: int | None = None
     issues: list[str] = Field(default_factory=list)
+    structured_issues: list[IssueDetail] = Field(default_factory=list)

@@ -8,6 +8,7 @@ import json
 import re
 import socket
 from datetime import UTC, datetime
+from functools import lru_cache
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -39,9 +40,16 @@ class HttpxFetchClient:
         self,
         cache: CacheBackend | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
+        client: httpx.AsyncClient | None = None,
     ) -> None:
         self.cache = cache
         self._transport = transport
+        self._client = client or httpx.AsyncClient(
+            follow_redirects=False,
+            timeout=None,
+            transport=transport,
+            headers={"User-Agent": USER_AGENT},
+        )
 
     async def fetch(self, url: str, timeout: float = 10.0) -> FetchResult:
         """Fetch a web page.
@@ -120,9 +128,13 @@ class HttpxFetchClient:
             )
 
     @staticmethod
-    def _cache_key(url: str, timeout: float) -> str:
-        payload = json.dumps({"url": url, "timeout": timeout}, sort_keys=True)
-        return "fetch:v1:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    def _cache_key(url: str, timeout: float | None = None) -> str:
+        payload = json.dumps({"url": url}, sort_keys=True)
+        return "fetch:v2:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    async def aclose(self) -> None:
+        """Close the underlying HTTPX async client."""
+        await self._client.aclose()
 
     @staticmethod
     def _ttl(result: FetchResult) -> int:
@@ -170,30 +182,25 @@ class HttpxFetchClient:
         reraise=True,
     )
     async def _request_once(self, url: str, timeout: float) -> tuple[httpx.Response, str]:
-        async with httpx.AsyncClient(
-            follow_redirects=False,
-            timeout=timeout,
-            transport=self._transport,
-            headers={"User-Agent": USER_AGENT},
-        ) as client:
-            current_url = url
-            for _ in range(MAX_REDIRECTS + 1):
-                response, raw_text = await self._stream_response(client, current_url)
-                if not response.is_redirect or "location" not in response.headers:
-                    return response, raw_text
-                next_url = self._redirect_url(response)
-                blocked = await self._blocked_reason(next_url)
-                if blocked:
-                    raise ValueError(f"redirect blocked: {blocked}")
-                current_url = next_url
-            raise httpx.TooManyRedirects("exceeded maximum redirects")
+        current_url = url
+        for _ in range(MAX_REDIRECTS + 1):
+            response, raw_text = await self._stream_response(self._client, current_url, timeout)
+            if not response.is_redirect or "location" not in response.headers:
+                return response, raw_text
+            next_url = self._redirect_url(response)
+            blocked = await self._blocked_reason(next_url)
+            if blocked:
+                raise ValueError(f"redirect blocked: {blocked}")
+            current_url = next_url
+        raise httpx.TooManyRedirects("exceeded maximum redirects")
 
     @staticmethod
     async def _stream_response(
         client: httpx.AsyncClient,
         url: str,
+        timeout: float,
     ) -> tuple[httpx.Response, str]:
-        async with client.stream("GET", url) as response:
+        async with client.stream("GET", url, timeout=timeout) as response:
             chunks: list[bytes] = []
             total = 0
             async for chunk in response.aiter_bytes():
@@ -265,7 +272,11 @@ async def _resolve_host(host: str) -> set[str]:
     Returns:
         Resolved IP addresses.
     """
-    import asyncio
+    infos = await asyncio.to_thread(_resolve_host_sync, host)
+    return set(infos)
 
-    infos = await asyncio.to_thread(socket.getaddrinfo, host, None)
-    return {str(item[4][0]) for item in infos}
+
+@lru_cache(maxsize=512)
+def _resolve_host_sync(host: str) -> frozenset[str]:
+    infos = socket.getaddrinfo(host, None)
+    return frozenset(str(item[4][0]) for item in infos)

@@ -10,7 +10,7 @@ class EvidenceItem(BaseModel):
     task_id: str
     competitor_name: str
     dimension: str
-    claim: str = Field(max_length=80)
+    claim: str = Field(max_length=240)
     value: str
     source_id: str
     source_url: str

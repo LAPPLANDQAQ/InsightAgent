@@ -61,7 +61,7 @@ class SufficiencyTool:
         missing = [item.dimension for item in coverage if not item.sufficient]
         return SufficiencyResult(
             score=score,
-            is_sufficient=score >= threshold and not missing,
+            is_sufficient=score >= threshold,
             missing_dimensions=missing,
             coverage=coverage,
         )

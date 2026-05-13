@@ -1,6 +1,11 @@
 """Tests for workflow state merging."""
 
-from app.graph.reducers import merge_state
+from app.graph.reducers import (
+    check_sufficiency,
+    merge_state,
+    route_after_critic,
+    route_after_sufficiency,
+)
 
 
 def test_merge_state_appends_lists_and_overrides_contract_fields():
@@ -38,3 +43,65 @@ def test_merge_state_appends_when_only_one_side_has_append_field():
     merged = merge_state({"issues": ["old"]}, {"current_stage": "writer"})
 
     assert merged["issues"] == ["old"]
+
+
+def test_merge_state_dedupes_issues_but_not_research_notes_or_chunks():
+    merged = merge_state(
+        {
+            "issues": ["old", "dupe"],
+            "research_notes": [{"note_id": "same"}],
+            "retrieved_chunks": [{"chunk_id": "same"}],
+        },
+        {
+            "issues": ["dupe", "new", "old"],
+            "research_notes": [{"note_id": "same"}],
+            "retrieved_chunks": [{"chunk_id": "same"}],
+        },
+    )
+
+    assert merged["issues"] == ["old", "dupe", "new"]
+    assert [item["note_id"] for item in merged["research_notes"]] == ["same", "same"]
+    assert [item["chunk_id"] for item in merged["retrieved_chunks"]] == ["same", "same"]
+
+
+def test_check_sufficiency_increments_global_loop_count():
+    update = check_sufficiency({"iteration_count": 1, "workflow_loop_count": 2})
+
+    assert update["iteration_count"] == 2
+    assert update["workflow_loop_count"] == 3
+
+
+def test_critic_route_finalizes_when_global_loop_guard_exceeded():
+    route = route_after_critic(
+        {
+            "critic_issues": [{"target_stage": "writer"}],
+            "critic_rounds": 0,
+            "max_iterations": 2,
+            "workflow_loop_count": 4,
+        }
+    )
+
+    assert route == "finalize"
+
+
+def test_critic_route_still_routes_below_global_loop_guard():
+    route = route_after_critic(
+        {
+            "critic_issues": [{"target_stage": "writer"}],
+            "critic_rounds": 0,
+            "max_iterations": 2,
+            "workflow_loop_count": 3,
+        }
+    )
+
+    assert route == "writer"
+
+
+def test_sufficiency_route_still_uses_threshold_result():
+    assert route_after_sufficiency(
+        {
+            "sufficiency": {"is_sufficient": True},
+            "iteration_count": 99,
+            "max_iterations": 1,
+        }
+    ) == "analyst"

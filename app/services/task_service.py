@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.graph.workflow import build_graph
 from app.infra.logger import get_logger
 from app.infra.security.redaction import redact_secret_like
+from app.services.issue_details import failed_issue_detail, structured_issues_from_state
 from app.services.task_repository import TaskRepository
 from app.services.task_status import status_payload
 
@@ -90,7 +91,11 @@ class TaskService:
                 await self._execute_task(task_id, query, competitors, dimensions)
         except asyncio.CancelledError:
             if self._tasks.get(task_id, {}).get("status") != "FAILED":
-                self._mark_failed(task_id, "task was cancelled before it could start")
+                self._mark_failed(
+                    task_id,
+                    "task was cancelled before it could start",
+                    issue_type="cancellation",
+                )
             raise
 
     async def _execute_task(
@@ -124,17 +129,19 @@ class TaskService:
                 final.get("current_stage"),
                 final.get("issues", []),
                 progress=1.0,
+                structured_issues=structured_issues_from_state(final),
             )
         except asyncio.CancelledError:
             message = "task was cancelled before completion"
             logger.warning("task_cancelled", extra={"task_id": task_id})
-            self._mark_failed(task_id, message)
+            if self._tasks.get(task_id, {}).get("status") != "FAILED":
+                self._mark_failed(task_id, message, issue_type="cancellation")
             raise
         except TimeoutError:
             timeout = self.container.settings.task_timeout_seconds
             message = f"task timed out after {timeout} seconds"
             logger.warning("task_timed_out", extra={"task_id": task_id})
-            self._mark_failed(task_id, message)
+            self._mark_failed(task_id, message, issue_type="timeout")
         except Exception as exc:
             message = redact_secret_like(str(exc))
             logger.warning(
@@ -196,6 +203,7 @@ class TaskService:
         issues: list,
         *,
         progress: float | None = None,
+        structured_issues: list[dict] | None = None,
     ) -> None:
         current = self._tasks.get(task_id, {})
         payload = status_payload(
@@ -204,17 +212,41 @@ class TaskService:
             issues=issues,
             progress=progress if progress is not None else current.get("progress", 0.0),
             started_at=current.get("started_monotonic"),
+            structured_issues=structured_issues,
         )
         self._tasks[task_id] = payload
         self.repository.update_status(task_id, status, stage)
 
-    def _mark_failed(self, task_id: str, message: str) -> None:
+    async def cancel(self, task_id: str) -> bool:
+        """Cancel a running background task and mark it failed."""
+        task = self._background_tasks.get(task_id)
+        if task is None or task.done():
+            return False
+        self._mark_failed(task_id, "task cancelled by user", issue_type="cancellation")
+        task.cancel()
+        self._background_tasks.pop(task_id, None)
+        return True
+
+    async def shutdown(self) -> None:
+        """Cancel remaining background tasks during application shutdown."""
+        tasks = list(self._background_tasks.values())
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _mark_failed(self, task_id: str, message: str, issue_type: str = "runtime") -> None:
+        stage = self._tasks.get(task_id, {}).get("stage")
         self._tasks[task_id] = status_payload(
             status="FAILED",
             stage="failed",
             issues=[message],
             progress=1.0,
             started_at=self._tasks.get(task_id, {}).get("started_monotonic"),
+            structured_issues=[
+                failed_issue_detail(issue_type=issue_type, stage=stage, message=message)
+            ],
         )
         self.repository.mark_failed(task_id, message)
 
@@ -236,6 +268,7 @@ class TaskService:
                     issues=payload.get("issues", []),
                     progress=payload.get("progress", 0.0),
                     started_at=payload.get("started_monotonic"),
+                    structured_issues=payload.get("structured_issues", []),
                 )
             return payload
         return self.repository.get_status(task_id)

@@ -8,6 +8,7 @@ import streamlit as st
 from frontend.i18n import t
 from frontend.utils import (
     FINAL_STATUSES,
+    MAX_CONSECUTIVE_POLL_FAILURES,
     MAX_POLL_SECONDS,
     STAGES,
     _format_eta,
@@ -41,6 +42,11 @@ def poll_status_fragment() -> None:
     if not task_id or st.session_state.get("task_completed"):
         return
     if not st.session_state.get("polling_active", True):
+        if st.button(t("resume_polling"), key=f"resume_polling_{task_id}"):
+            st.session_state.polling_active = True
+            st.session_state.consecutive_failures = 0
+            st.session_state.last_error = None
+            st.rerun()
         return
 
     try:
@@ -147,7 +153,7 @@ def _render_status_ui(status: dict[str, Any]) -> None:
 
 def _check_excessive_failures() -> None:
     cf = st.session_state.get("consecutive_failures", 0)
-    if cf >= 5 and st.session_state.get("polling_active"):
+    if cf >= MAX_CONSECUTIVE_POLL_FAILURES and st.session_state.get("polling_active"):
         st.session_state.polling_active = False
         st.warning(t("backend_unreachable"))
     elif cf > 0:

@@ -10,8 +10,14 @@ router = APIRouter()
 
 
 @router.get("/healthz")
-async def healthz(request: Request, response: Response) -> dict[str, Any]:
-    """Return dependency health without exposing secrets."""
+async def healthz() -> dict[str, Any]:
+    """Return process liveness."""
+    return {"status": "ok", "app": "InsightAgent"}
+
+
+@router.get("/readyz")
+async def readyz(request: Request, response: Response) -> dict[str, Any]:
+    """Return dependency readiness without exposing secrets."""
     payload, ok = await build_health_payload(
         settings=request.app.state.settings,
         engine=request.app.state.engine,

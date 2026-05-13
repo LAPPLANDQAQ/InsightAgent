@@ -1,5 +1,7 @@
 """FastAPI application entrypoint."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.api.health import router as health_router
@@ -13,6 +15,20 @@ from app.services.task_service import TaskService
 logger = get_logger(__name__)
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Close application resources on shutdown."""
+    try:
+        yield
+    finally:
+        task_service = getattr(app.state, "task_service", None)
+        if task_service is not None and hasattr(task_service, "shutdown"):
+            await task_service.shutdown()
+        container = getattr(app.state, "container", None)
+        if container is not None and hasattr(container, "aclose"):
+            await container.aclose()
+
+
 def create_app() -> FastAPI:
     """Create the FastAPI application.
 
@@ -24,7 +40,7 @@ def create_app() -> FastAPI:
     container = Container(settings)
     engine = build_engine(settings.db_url)
     session_factory = build_session_factory(engine)
-    app = FastAPI(title="InsightAgent")
+    app = FastAPI(title="InsightAgent", lifespan=lifespan)
     app.state.settings = settings
     app.state.container = container
     app.state.engine = engine

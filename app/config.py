@@ -82,11 +82,11 @@ class Settings(BaseSettings):
     rag_final_top_k: int = Field(default=5, ge=1)
     rag_rrf_k: int = Field(default=60, ge=1)
     embedding_provider: str = "fake"
-    enable_harness: bool = True
+    enable_harness: bool = False
     harness_trace_payload_limit: int = Field(default=1000, ge=100)
     harness_max_tool_calls_per_task: int = Field(default=50, ge=1)
     harness_require_approval_for_high_risk: bool = True
-    enable_mcp_server: bool = True
+    enable_mcp_server: bool = False
     mcp_transport: Literal["stdio"] = "stdio"
     mcp_http_auth_token: str = Field(default="", exclude=True, repr=False)
     mcp_allow_write_tools: bool = False

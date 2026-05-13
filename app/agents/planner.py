@@ -8,9 +8,11 @@ from app.agents.base import AgentBase
 from app.infra.llm.base import LLMClient
 from app.schemas.plan import ResearchPlan
 from app.schemas.research_todo import ResearchTodo
+from app.tools.agent_observability import get_agent_logger, redact_issue
 
 DEFAULT_COMPETITORS = ["Cursor", "GitHub Copilot"]
 DEFAULT_DIMENSIONS = ["pricing", "features", "ecosystem"]
+logger = get_agent_logger(__name__)
 
 
 class Planner(AgentBase):
@@ -43,8 +45,12 @@ class Planner(AgentBase):
                 temperature=0.2,
             )
         except Exception as exc:
+            logger.exception(
+                "planner_llm_failed",
+                extra={"task_id": state.get("task_id"), "stage": self.name},
+            )
             plan = self._fallback_plan(query, competitors, dimensions)
-            issues = [f"planner_fallback: {exc}"]
+            issues = [f"planner_fallback: {redact_issue(str(exc))}"]
         else:
             assert not isinstance(plan, str)
             issues = []

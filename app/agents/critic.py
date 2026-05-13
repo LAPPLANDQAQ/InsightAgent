@@ -17,6 +17,16 @@ IssueType = Literal[
     "logic_gap",
 ]
 TargetStage = Literal["researcher", "analyst", "writer"]
+METADATA_BULLET_PREFIXES = (
+    "- 竞品:",
+    "- 维度:",
+    "- 证据:",
+    "- Competitors:",
+    "- Dimensions:",
+    "- Evidence:",
+    "- Scope:",
+    "- Sources:",
+)
 
 
 class Critic(AgentBase):
@@ -45,6 +55,7 @@ class Critic(AgentBase):
             "task_status": status,
             "current_stage": self.name,
             "critic_rounds": int(state.get("critic_rounds", 0)) + 1,
+            "workflow_loop_count": int(state.get("workflow_loop_count", 0)) + 1,
         }
 
     def _rule_issues(self, state: dict[str, Any]) -> list[CriticIssue]:
@@ -79,7 +90,7 @@ class Critic(AgentBase):
         unsupported = [
             line.strip()
             for line in report.splitlines()
-            if line.strip().startswith("-") and "[ev_" not in line
+            if self._is_claim_bullet(line.strip())
         ]
         if unsupported:
             issues.append(
@@ -100,3 +111,9 @@ class Critic(AgentBase):
             message=message,
             related_ids=[],
         )
+
+    @staticmethod
+    def _is_claim_bullet(line: str) -> bool:
+        if not line.startswith("-") or "[ev_" in line:
+            return False
+        return not any(line.startswith(prefix) for prefix in METADATA_BULLET_PREFIXES)

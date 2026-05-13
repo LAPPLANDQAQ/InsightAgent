@@ -192,6 +192,41 @@ async def test_httpx_fetch_client_extracts_and_caches():
     assert calls == 1
 
 
+@pytest.mark.asyncio
+async def test_httpx_fetch_client_reuses_instance_client(monkeypatch):
+    created = 0
+
+    class CountingAsyncClient(httpx.AsyncClient):
+        def __init__(self, *args, **kwargs):
+            nonlocal created
+            created += 1
+            super().__init__(*args, **kwargs)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, html="<title>Fresh</title><p>ok</p>", request=request)
+
+    monkeypatch.setattr(fetch_module.httpx, "AsyncClient", CountingAsyncClient)
+    client = HttpxFetchClient(cache=None, transport=httpx.MockTransport(handler))
+
+    await client.fetch("https://example.com/one")
+    await client.fetch("https://example.com/two")
+    await client.aclose()
+
+    assert created == 1
+
+
+@pytest.mark.asyncio
+async def test_httpx_fetch_client_aclose_closes_instance_client():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, html="<p>ok</p>", request=request)
+
+    client = HttpxFetchClient(cache=None, transport=httpx.MockTransport(handler))
+
+    await client.aclose()
+
+    assert client._client.is_closed
+
+
 def test_httpx_fetch_client_logs_trafilatura_failure(monkeypatch, caplog):
     def fail_extract(raw_html: str) -> str:
         raise RuntimeError("parser exploded with api_key=sk-secret")
@@ -321,3 +356,9 @@ async def test_httpx_fetch_client_ignores_corrupted_cache():
     result = await client.fetch("https://example.com")
     assert result.title == "Fresh"
     assert calls == 1
+
+
+def test_httpx_fetch_cache_key_ignores_timeout():
+    assert HttpxFetchClient._cache_key("https://example.com", 5.0) == (
+        HttpxFetchClient._cache_key("https://example.com", 20.0)
+    )

@@ -10,7 +10,7 @@ from app.infra.db.session import build_engine, build_session_factory
 from app.schemas.report import ReportResponse
 from app.services.task_repository import TaskRepository
 from app.services.task_service import TaskLimitError, TaskService
-from app.services.task_status import STALE_RUNNING_MESSAGE
+from app.services.task_status import STALE_RUNNING_MESSAGE, status_payload
 
 
 def _service(container_with_stubs) -> tuple[TaskService, object]:
@@ -231,17 +231,61 @@ def test_persist_accepts_evidence_payload_with_task_id(container_with_stubs):
 def test_get_status_marks_stale_running_task_failed(container_with_stubs):
     service, session_factory = _service(container_with_stubs)
     with session_factory() as session:
-        session.add(Task(id="task_stale", query="query", status="RUNNING"))
+        session.add(
+            Task(
+                id="task_stale",
+                query="query",
+                status="RUNNING",
+                current_stage="researcher",
+            )
+        )
         session.commit()
 
     status = service.get_status("task_stale")
 
     assert status["status"] == "FAILED"
-    assert status["issues"] == [STALE_RUNNING_MESSAGE]
+    assert status["issues"] == [STALE_RUNNING_MESSAGE.format(stage="researcher")]
+    assert "last known stage: researcher" in status["issues"][0]
     with session_factory() as session:
         task = session.get(Task, "task_stale")
         assert task.status == "FAILED"
-        assert task.error_message == STALE_RUNNING_MESSAGE
+        assert task.error_message == STALE_RUNNING_MESSAGE.format(stage="researcher")
+
+
+@pytest.mark.asyncio
+async def test_cancel_running_task_marks_failed_and_cleans_handle(container_with_stubs):
+    service, session_factory = _service(container_with_stubs)
+    service._create_row("task_cancel_api", "query")
+    service._tasks["task_cancel_api"] = status_payload(
+        status="RUNNING",
+        stage="researcher",
+        issues=[],
+        progress=0.5,
+        started_at=None,
+    )
+    task = asyncio.create_task(asyncio.sleep(30))
+    service._background_tasks["task_cancel_api"] = task
+    task.add_done_callback(service._task_done_callback("task_cancel_api"))
+
+    accepted = await service.cancel("task_cancel_api")
+    await asyncio.sleep(0)
+
+    status = service.get_status("task_cancel_api")
+    assert accepted
+    assert status["status"] == "FAILED"
+    assert status["issues"] == ["task cancelled by user"]
+    assert "task_cancel_api" not in service._background_tasks
+    with session_factory() as session:
+        row = session.get(Task, "task_cancel_api")
+        assert row.status == "FAILED"
+        assert row.error_message == "task cancelled by user"
+
+
+@pytest.mark.asyncio
+async def test_cancel_unknown_task_returns_false(container_with_stubs):
+    service, _ = _service(container_with_stubs)
+
+    assert not await service.cancel("missing_task")
 
 
 def test_get_status_exposes_persisted_error_message(container_with_stubs):

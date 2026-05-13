@@ -22,6 +22,7 @@ class WorkflowState(TypedDict, total=False):
     current_stage: str
     iteration_count: int
     critic_rounds: int
+    workflow_loop_count: int
     max_iterations: int
     sufficiency_threshold: float
     issues: list[str]

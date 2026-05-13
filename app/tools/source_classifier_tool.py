@@ -2,12 +2,15 @@
 
 from urllib.parse import urlsplit
 
+from app.infra.logger import get_logger
+from app.infra.security.redaction import redact_secret_like
 from app.schemas.source import SourceItem, SourceType
 
 MEDIA_DOMAINS = {"techcrunch.com", "theverge.com", "wired.com", "reuters.com", "bloomberg.com"}
 COMMUNITY_DOMAINS = {"reddit.com", "github.com", "stackoverflow.com", "news.ycombinator.com"}
 REVIEW_DOMAINS = {"g2.com", "capterra.com", "producthunt.com", "trustpilot.com"}
 PAPER_DOMAINS = {"arxiv.org", "doi.org", "acm.org", "ieee.org"}
+logger = get_logger(__name__)
 
 
 class SourceClassifierTool:
@@ -34,19 +37,30 @@ class SourceClassifierTool:
         Returns:
             Validated source item.
         """
-        domain = self._domain(url)
-        source_type = self._classify(domain)
-        return SourceItem(
-            source_id=source_id,
-            url=url,
-            domain=domain,
-            title=title,
-            source_type=source_type,
-            credibility_score=self._score(source_type),
-            classification_method="rule",
-            published_at=published_at,
-            retrieved_at=retrieved_at,
-        )
+        try:
+            domain = self._domain(url)
+            source_type = self._classify(domain)
+            return SourceItem(
+                source_id=source_id,
+                url=url,
+                domain=domain,
+                title=title,
+                source_type=source_type,
+                credibility_score=self._score(source_type),
+                classification_method="rule",
+                published_at=published_at,
+                retrieved_at=retrieved_at,
+            )
+        except Exception as exc:
+            logger.exception(
+                "source_classification_failed",
+                extra={
+                    "source_id": source_id,
+                    "url": redact_secret_like(url),
+                    "error": redact_secret_like(str(exc)),
+                },
+            )
+            raise
 
     @staticmethod
     def _domain(url: str) -> str:

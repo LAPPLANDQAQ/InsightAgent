@@ -7,8 +7,13 @@ from pydantic import BaseModel, Field
 
 from app.infra.cache.base import CacheBackend
 from app.infra.llm.base import LLMClient
+from app.infra.logger import get_logger
+from app.infra.security.redaction import redact_secret_like
 from app.schemas.evidence import EvidenceItem
 from app.tools.dedup import dedupe_evidence
+
+MAX_EXTRACTION_CHARS = 2000
+logger = get_logger(__name__)
 
 
 class EvidenceExtractionResult(BaseModel):
@@ -36,19 +41,18 @@ class ExtractionTool:
             dimension: Research dimension.
             source_id: Source id.
             source_url: Source URL.
-            text: Source text, rejected when longer than 2000 chars.
+            text: Source text, truncated when longer than 2000 chars.
             max_evidence: Maximum evidence count.
 
         Returns:
             Validated result.
         """
-        if len(text) > 2000:
-            raise ValueError("Extraction input exceeds 2000 characters")
+        prepared_text = self._prepare_text_for_extraction(text)
         cache_key = self._cache_key_for(
             competitor_name,
             dimension,
             source_url,
-            text,
+            prepared_text,
             max_evidence,
         )
         cached_result = await self._cached_result(
@@ -68,7 +72,7 @@ class ExtractionTool:
             dimension=dimension,
             source_id=source_id,
             source_url=source_url,
-            text=text,
+            text=prepared_text,
             max_evidence=max_evidence,
         )
         if self.cache:
@@ -138,7 +142,15 @@ class ExtractionTool:
         cached = await self.cache.get(cache_key)
         if cached is None:
             return None
-        cached_result = EvidenceExtractionResult.model_validate_json(cached)
+        try:
+            cached_result = EvidenceExtractionResult.model_validate_json(cached)
+        except Exception as exc:
+            logger.exception(
+                "extraction_cache_corrupted",
+                extra={"cache_key": cache_key, "error": redact_secret_like(str(exc))},
+            )
+            await self.cache.delete(cache_key)
+            return None
         return self._normalize_result(
             cached_result,
             task_id=task_id,
@@ -169,7 +181,12 @@ class ExtractionTool:
             ensure_ascii=False,
             sort_keys=True,
         )
-        return "extract:v1:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return "extract:v2:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _prepare_text_for_extraction(text: str) -> str:
+        normalized = " ".join(text.split())
+        return normalized[:MAX_EXTRACTION_CHARS]
 
     @staticmethod
     def _normalize_result(

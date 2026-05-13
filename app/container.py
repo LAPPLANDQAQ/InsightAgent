@@ -37,6 +37,8 @@ class Container:
             heavy_model=settings.llm_heavy_model,
             light_model=settings.llm_light_model,
             fallback_model=settings.llm_fallback_model,
+            max_concurrent_heavy=settings.max_concurrent_llm_heavy,
+            max_concurrent_light=settings.max_concurrent_llm_light,
         )
         self.search_service = SearchService(
             self._search_providers(),
@@ -63,15 +65,24 @@ class Container:
         self.analyst = Analyst(self.llm)
         self.writer = Writer(self.llm)
         self.critic = Critic(self.llm, settings.enable_llm_critic)
-        self.research_router = ResearchRouter()
-        self.rag_indexer = RAGIndexer(settings.rag_chunk_size, settings.rag_chunk_overlap)
-        self.rag_researcher = RAGResearcher(
-            sparse_top_k=settings.rag_sparse_top_k,
-            dense_top_k=settings.rag_dense_top_k,
-            final_top_k=settings.rag_final_top_k,
-            rrf_k=settings.rag_rrf_k,
-        )
-        self.task_summarizer = TaskSummarizer()
+        self.research_router = None
+        self.rag_indexer = None
+        self.rag_researcher = None
+        self.task_summarizer = None
+        if settings.enable_rag_research:
+            self.research_router = ResearchRouter()
+            self.rag_indexer = RAGIndexer(settings.rag_chunk_size, settings.rag_chunk_overlap)
+            self.rag_researcher = RAGResearcher(
+                sparse_top_k=settings.rag_sparse_top_k,
+                dense_top_k=settings.rag_dense_top_k,
+                final_top_k=settings.rag_final_top_k,
+                rrf_k=settings.rag_rrf_k,
+            )
+            self.task_summarizer = TaskSummarizer()
+
+    async def aclose(self) -> None:
+        """Close resources owned by the container."""
+        await self.fetch_client.aclose()
 
     def _search_providers(self) -> list[SearchProvider]:
         providers: list[SearchProvider] = []

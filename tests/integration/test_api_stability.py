@@ -1,5 +1,7 @@
 """API stability integration tests."""
 
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from app.infra.db.session import build_engine, build_session_factory
@@ -51,10 +53,19 @@ def _install_task_service(app, container_with_stubs, graph: FakeGraph, tmp_path)
     app.state.task_service = service
 
 
-def test_healthz_reports_runtime_readiness(monkeypatch, tmp_path):
+def test_healthz_reports_liveness(monkeypatch, tmp_path):
     app = _create_test_app(monkeypatch, tmp_path)
 
     response = TestClient(app).get("/healthz")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_readyz_reports_runtime_readiness(monkeypatch, tmp_path):
+    app = _create_test_app(monkeypatch, tmp_path)
+
+    response = TestClient(app).get("/readyz")
 
     assert response.status_code == 200
     payload = response.json()
@@ -65,7 +76,7 @@ def test_healthz_reports_runtime_readiness(monkeypatch, tmp_path):
     assert payload["llm_configured"] is True
 
 
-def test_healthz_degraded_when_db_check_fails(monkeypatch, tmp_path):
+def test_readyz_degraded_when_db_check_fails(monkeypatch, tmp_path):
     class BrokenEngine:
         def connect(self):
             raise RuntimeError("db failed with test-key")
@@ -73,7 +84,7 @@ def test_healthz_degraded_when_db_check_fails(monkeypatch, tmp_path):
     app = _create_test_app(monkeypatch, tmp_path)
     app.state.engine = BrokenEngine()
 
-    response = TestClient(app).get("/healthz")
+    response = TestClient(app).get("/readyz")
 
     assert response.status_code == 503
     payload = response.json()
@@ -112,6 +123,68 @@ def test_api_failed_task_status_exposes_issue(monkeypatch, tmp_path, container_w
     assert status.json()["status"] == "FAILED"
     assert status.json()["issues"] == ["upstream timeout"]
     assert report.status_code == 404
+
+
+def test_api_task_status_keeps_legacy_and_structured_issues(
+    monkeypatch,
+    tmp_path,
+    container_with_stubs,
+):
+    app = _create_test_app(monkeypatch, tmp_path)
+    _install_task_service(app, container_with_stubs, FakeGraph(), tmp_path)
+    app.state.task_service.get_status = lambda task_id: {
+        "status": "FAILED",
+        "stage": "failed",
+        "stage_label": "Failed",
+        "progress": 1.0,
+        "estimated_remaining_seconds": 0,
+        "issues": ["task cancelled by user"],
+        "structured_issues": [
+            {
+                "type": "cancellation",
+                "severity": "warning",
+                "stage": "failed",
+                "message": "task cancelled by user",
+            }
+        ],
+    }
+    client = TestClient(app)
+
+    response = client.get("/api/tasks/task_cancelled")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["issues"] == ["task cancelled by user"]
+    assert payload["structured_issues"][0]["type"] == "cancellation"
+
+
+def test_api_cancel_running_task_returns_202(monkeypatch, tmp_path, container_with_stubs):
+    app = _create_test_app(monkeypatch, tmp_path)
+
+    async def cancel(task_id: str) -> bool:
+        return task_id == "task_running"
+
+    app.state.task_service = SimpleNamespace(cancel=cancel)
+    client = TestClient(app)
+
+    response = client.delete("/api/tasks/task_running")
+
+    assert response.status_code == 202
+    assert response.json() == {"task_id": "task_running", "status": "CANCELLING"}
+
+
+def test_api_cancel_unknown_task_returns_404(monkeypatch, tmp_path, container_with_stubs):
+    app = _create_test_app(monkeypatch, tmp_path)
+
+    async def cancel(task_id: str) -> bool:
+        return False
+
+    app.state.task_service = SimpleNamespace(cancel=cancel)
+    client = TestClient(app)
+
+    response = client.delete("/api/tasks/missing")
+
+    assert response.status_code == 404
 
 
 def test_api_queue_full_response_includes_retry_after(

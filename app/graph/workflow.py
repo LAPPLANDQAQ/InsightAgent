@@ -52,6 +52,7 @@ class WorkflowRunner:
             "issues": [],
             "iteration_count": 0,
             "critic_rounds": 0,
+            "workflow_loop_count": 0,
             **initial_state,
         }
         return cast(dict[str, Any], await self._compiled.ainvoke(state))

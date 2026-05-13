@@ -1,5 +1,6 @@
 """DeepSeek client tests."""
 
+import asyncio
 from types import SimpleNamespace
 
 import httpx
@@ -39,6 +40,33 @@ class FakeOpenAIClient:
 
     def __init__(self, contents: list[str | Exception]) -> None:
         self.completions = FakeCompletions(contents)
+        self.chat = SimpleNamespace(completions=self.completions)
+
+
+class SlowCompletions:
+    """Fake completions endpoint that records max concurrent calls."""
+
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.active = 0
+        self.max_active = 0
+        self.calls: list[dict] = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        await asyncio.sleep(0.01)
+        self.active -= 1
+        message = SimpleNamespace(content=self.content)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+class SlowOpenAIClient:
+    """Fake OpenAI-compatible client with slow completions."""
+
+    def __init__(self, content: str = "hello") -> None:
+        self.completions = SlowCompletions(content)
         self.chat = SimpleNamespace(completions=self.completions)
 
 
@@ -96,6 +124,16 @@ async def test_deepseek_client_extracts_fenced_json_on_fallback():
     )
     assert result.age == 36
     assert "response_format" not in fake.completions.calls[1]
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_extracts_json_mode_content_without_second_call():
+    fake = FakeOpenAIClient(['prefix {"name": "Ada", "age": 36} suffix'])
+
+    result = await _client(fake).invoke(prompt="JSON", model_role="heavy", schema=DemoOutput)
+
+    assert result.name == "Ada"
+    assert len(fake.completions.calls) == 1
 
 
 @pytest.mark.asyncio
@@ -198,3 +236,45 @@ async def test_deepseek_client_generic_error_redacts_secret_like_values():
     assert "token=[REDACTED]" in message
     assert "sk-secret" not in message
     assert "abc123" not in message
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_bounds_heavy_concurrency():
+    fake = SlowOpenAIClient()
+    client = DeepSeekClient(
+        api_key="fake",
+        base_url="https://api.deepseek.test/v1",
+        heavy_model="deepseek-v4-pro",
+        light_model="deepseek-v4-flash",
+        fallback_model="deepseek-v4-flash",
+        client=fake,
+        max_concurrent_heavy=1,
+        max_concurrent_light=5,
+    )
+
+    await asyncio.gather(
+        *(client.invoke(prompt="Hi", model_role="heavy") for _ in range(3))
+    )
+
+    assert fake.completions.max_active == 1
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_bounds_light_concurrency():
+    fake = SlowOpenAIClient()
+    client = DeepSeekClient(
+        api_key="fake",
+        base_url="https://api.deepseek.test/v1",
+        heavy_model="deepseek-v4-pro",
+        light_model="deepseek-v4-flash",
+        fallback_model="deepseek-v4-flash",
+        client=fake,
+        max_concurrent_heavy=5,
+        max_concurrent_light=1,
+    )
+
+    await asyncio.gather(
+        *(client.invoke(prompt="Hi", model_role="light") for _ in range(3))
+    )
+
+    assert fake.completions.max_active == 1

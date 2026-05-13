@@ -10,9 +10,16 @@ from typing import Any
 
 import httpx
 
-API_BASE = os.getenv("INSIGHT_API_BASE", "http://127.0.0.1:8080").rstrip("/")
+
+def get_api_base() -> str:
+    """Return the configured backend API base URL."""
+    return os.getenv("INSIGHT_API_BASE", "http://127.0.0.1:8000").rstrip("/")
+
+
+API_BASE = get_api_base()
 POLL_INTERVAL_SECONDS = 2
 MAX_POLL_SECONDS = int(os.getenv("INSIGHT_FRONTEND_MAX_POLL_SECONDS", "900"))
+MAX_CONSECUTIVE_POLL_FAILURES = 15
 REPORT_RETRY_ATTEMPTS = 3
 REPORT_RETRY_INTERVAL_SECONDS = 1
 TRANSIENT_STATUS_CODES = {429, 503}
@@ -49,6 +56,7 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "health_checked": False,
     "report_retry_count": 0,
     "lang": "en",
+    "form_disabled": False,
 }
 
 
@@ -120,23 +128,31 @@ def _document_filename(task_id: str) -> str:
 # ------------------------------------------------------------------
 
 
-def api_create_task(query: str, competitors: list[str], dimensions: list[str]) -> str:
-    response = HTTP_CLIENT.post(
-        f"{API_BASE}/api/tasks",
+def api_create_task(
+    query: str,
+    competitors: list[str],
+    dimensions: list[str],
+    client: httpx.Client | None = None,
+) -> str:
+    client = client or HTTP_CLIENT
+    response = client.post(
+        f"{get_api_base()}/api/tasks",
         json={"query": query, "competitors": competitors, "dimensions": dimensions},
     )
     response.raise_for_status()
     return _require_field(response.json(), "task_id")
 
 
-def api_get_status(task_id: str) -> dict[str, Any]:
-    response = HTTP_CLIENT.get(f"{API_BASE}/api/tasks/{task_id}")
+def api_get_status(task_id: str, client: httpx.Client | None = None) -> dict[str, Any]:
+    client = client or HTTP_CLIENT
+    response = client.get(f"{get_api_base()}/api/tasks/{task_id}")
     response.raise_for_status()
     return response.json()
 
 
-def api_get_report(task_id: str) -> dict[str, Any]:
-    response = HTTP_CLIENT.get(f"{API_BASE}/api/tasks/{task_id}/report")
+def api_get_report(task_id: str, client: httpx.Client | None = None) -> dict[str, Any]:
+    client = client or HTTP_CLIENT
+    response = client.get(f"{get_api_base()}/api/tasks/{task_id}/report")
     if response.status_code == 404:
         raise ReportNotReadyError("Report is not ready yet. Please refresh later.")
     response.raise_for_status()
@@ -154,9 +170,10 @@ def api_get_report_with_retries(task_id: str) -> dict[str, Any]:
     )
 
 
-def api_health_check() -> dict[str, Any] | None:
+def api_health_check(client: httpx.Client | None = None) -> dict[str, Any] | None:
+    client = client or HTTP_CLIENT
     try:
-        response = HTTP_CLIENT.get(f"{API_BASE}/healthz", timeout=5.0)
+        response = client.get(f"{get_api_base()}/healthz", timeout=5.0)
         return response.json() if response.is_success else None
     except Exception:
         return None
