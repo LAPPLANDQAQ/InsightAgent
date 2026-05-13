@@ -33,6 +33,24 @@ async def test_memory_cache_expires():
 
 
 @pytest.mark.asyncio
+async def test_memory_cache_concurrent_set_get_delete():
+    cache = MemoryCache()
+
+    async def writer(index: int) -> None:
+        await cache.set(f"k{index}", f"value{index}".encode())
+
+    async def reader(index: int) -> bytes | None:
+        return await cache.get(f"k{index}")
+
+    await asyncio.gather(*(writer(index) for index in range(20)))
+    values = await asyncio.gather(*(reader(index) for index in range(20)))
+    await asyncio.gather(*(cache.delete(f"k{index}") for index in range(20)))
+
+    assert values == [f"value{index}".encode() for index in range(20)]
+    assert await cache.get("k0") is None
+
+
+@pytest.mark.asyncio
 async def test_sqlite_cache_get_set_delete():
     db_path = _db_path()
     cache = SQLiteCache(db_path)

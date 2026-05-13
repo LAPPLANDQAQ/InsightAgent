@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from pydantic import BaseModel
 
@@ -19,7 +20,7 @@ class DemoOutput(BaseModel):
 class FakeCompletions:
     """Fake OpenAI-compatible completions endpoint."""
 
-    def __init__(self, contents: list[str]) -> None:
+    def __init__(self, contents: list[str | Exception]) -> None:
         self.contents = contents
         self.calls: list[dict] = []
 
@@ -27,6 +28,8 @@ class FakeCompletions:
         """Return the next configured content."""
         self.calls.append(kwargs)
         content = self.contents.pop(0)
+        if isinstance(content, Exception):
+            raise content
         message = SimpleNamespace(content=content)
         return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
@@ -34,9 +37,21 @@ class FakeCompletions:
 class FakeOpenAIClient:
     """Fake OpenAI-compatible client."""
 
-    def __init__(self, contents: list[str]) -> None:
+    def __init__(self, contents: list[str | Exception]) -> None:
         self.completions = FakeCompletions(contents)
         self.chat = SimpleNamespace(completions=self.completions)
+
+
+class FakeRateLimitError(RuntimeError):
+    """Fake upstream 429 error."""
+
+    status_code = 429
+
+
+class FakeServerError(RuntimeError):
+    """Fake upstream 5xx error."""
+
+    status_code = 503
 
 
 def _client(fake: FakeOpenAIClient) -> DeepSeekClient:
@@ -88,3 +103,70 @@ async def test_deepseek_client_raises_for_invalid_structured_output():
     fake = FakeOpenAIClient(["not json", "still not json"])
     with pytest.raises(LLMOutputError):
         await _client(fake).invoke(prompt="JSON", model_role="heavy", schema=DemoOutput)
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_raises_for_empty_content():
+    fake = FakeOpenAIClient(["   "])
+    with pytest.raises(LLMOutputError, match="empty content"):
+        await _client(fake).invoke(prompt="Hi", model_role="light")
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_retries_transient_errors():
+    fake = FakeOpenAIClient([httpx.ConnectError("offline"), "hello"])
+    result = await _client(fake).invoke(prompt="Hi", model_role="light")
+
+    assert result == "hello"
+    assert len(fake.completions.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_uses_fallback_model_after_retries():
+    fake = FakeOpenAIClient([FakeRateLimitError("limited"), FakeRateLimitError("limited"), "ok"])
+    result = await _client(fake).invoke(prompt="Hi", model_role="heavy")
+
+    assert result == "ok"
+    assert [call["model"] for call in fake.completions.calls] == [
+        "deepseek-v4-pro",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_5xx_fallback_error_is_sanitized():
+    fake = FakeOpenAIClient(
+        [
+            FakeServerError("server failed sk-secret"),
+            FakeServerError("server failed sk-secret"),
+            FakeServerError("server failed sk-secret"),
+            FakeServerError("server failed sk-secret"),
+        ]
+    )
+
+    with pytest.raises(LLMOutputError) as exc_info:
+        await _client(fake).invoke(prompt="Hi", model_role="heavy")
+
+    assert "FakeServerError(status_code=503)" in str(exc_info.value)
+    assert "sk-secret" not in str(exc_info.value)
+    assert [call["model"] for call in fake.completions.calls] == [
+        "deepseek-v4-pro",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+        "deepseek-v4-flash",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_generic_error_redacts_secret_like_values():
+    fake = FakeOpenAIClient([RuntimeError("failed with api_key=sk-secret token=abc123")])
+
+    with pytest.raises(LLMOutputError) as exc_info:
+        await _client(fake).invoke(prompt="Hi", model_role="fallback")
+
+    message = str(exc_info.value)
+    assert "api_key=[REDACTED]" in message
+    assert "token=[REDACTED]" in message
+    assert "sk-secret" not in message
+    assert "abc123" not in message

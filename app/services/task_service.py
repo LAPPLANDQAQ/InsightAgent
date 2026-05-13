@@ -1,20 +1,22 @@
 """Task orchestration service."""
 
 import asyncio
-import json
 from collections.abc import Callable
-from datetime import UTC, datetime
 from time import monotonic
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
 from app.graph.workflow import build_graph
-from app.infra.db.models import EvidenceRow, Report, SourceRow, Task
 from app.infra.logger import get_logger
-from app.services.task_status import STALE_RUNNING_MESSAGE, status_payload
+from app.services.task_repository import TaskRepository
+from app.services.task_status import status_payload
 
 logger = get_logger(__name__)
+
+
+class TaskLimitError(RuntimeError):
+    """Raised when the in-process task queue is full."""
 
 
 class TaskService:
@@ -29,9 +31,13 @@ class TaskService:
     ) -> None:
         self.container = container
         self.session_factory = session_factory
+        self.repository = TaskRepository(session_factory)
         self.graph = build_graph(container, on_stage=self._on_workflow_stage)
         self.run_background = run_background
         self._tasks: dict[str, dict] = {}
+        self._background_tasks: dict[str, asyncio.Task[None]] = {}
+        self._task_semaphore = asyncio.Semaphore(container.settings.max_concurrent_tasks)
+        self._max_queued_tasks = container.settings.max_queued_tasks
         self._mark_stale_running_tasks()
 
     async def create_task(
@@ -50,6 +56,9 @@ class TaskService:
         Returns:
             Created task identifier.
         """
+        if self.repository.active_task_count() >= self._max_queued_tasks:
+            raise TaskLimitError("too many pending or running tasks; please retry later")
+
         task_id = f"task_{uuid4().hex[:12]}"
         self._create_row(task_id, query)
         self._tasks[task_id] = status_payload(
@@ -61,7 +70,9 @@ class TaskService:
         )
         args = (task_id, query, competitors or [], dimensions or [])
         if self.run_background:
-            asyncio.create_task(self._run_task(*args))
+            task = asyncio.create_task(self._run_task(*args))
+            self._background_tasks[task_id] = task
+            task.add_done_callback(self._task_done_callback(task_id))
         else:
             await self._run_task(*args)
         return task_id
@@ -73,7 +84,22 @@ class TaskService:
         competitors: list[str],
         dimensions: list[str],
     ) -> None:
-        self._tasks[task_id]["started_monotonic"] = monotonic()
+        try:
+            async with self._task_semaphore:
+                await self._execute_task(task_id, query, competitors, dimensions)
+        except asyncio.CancelledError:
+            if self._tasks.get(task_id, {}).get("status") != "FAILED":
+                self._mark_failed(task_id, "task was cancelled before it could start")
+            raise
+
+    async def _execute_task(
+        self,
+        task_id: str,
+        query: str,
+        competitors: list[str],
+        dimensions: list[str],
+    ) -> None:
+        self._tasks.setdefault(task_id, {})["started_monotonic"] = monotonic()
         self._update_status(task_id, "RUNNING", "planner", [], progress=0.05)
         try:
             final = await self.graph.ainvoke(
@@ -95,9 +121,32 @@ class TaskService:
                 final.get("issues", []),
                 progress=1.0,
             )
+        except asyncio.CancelledError:
+            message = "task was cancelled before completion"
+            logger.warning("task_cancelled", extra={"task_id": task_id})
+            self._mark_failed(task_id, message)
+            raise
         except Exception as exc:
             logger.exception("task_failed", extra={"task_id": task_id})
             self._mark_failed(task_id, str(exc))
+
+    def _task_done(self, task_id: str, completed: asyncio.Task[None]) -> None:
+        self._background_tasks.pop(task_id, None)
+        if completed.cancelled():
+            return
+        try:
+            completed.result()
+        except Exception as exc:
+            logger.warning(
+                "background_task_error_consumed",
+                extra={"task_id": task_id, "error": str(exc)},
+            )
+
+    def _task_done_callback(self, task_id: str) -> Callable[[asyncio.Task[None]], None]:
+        def _callback(completed: asyncio.Task[None]) -> None:
+            self._task_done(task_id, completed)
+
+        return _callback
 
     def _on_workflow_stage(
         self,
@@ -120,37 +169,10 @@ class TaskService:
         )
 
     def _create_row(self, task_id: str, query: str) -> None:
-        with self.session_factory() as session:
-            session.add(Task(id=task_id, query=query, status="PENDING"))
-            session.commit()
+        self.repository.create_row(task_id, query)
 
     def _persist(self, task_id: str, state: dict) -> None:
-        with self.session_factory() as session:
-            task = session.get(Task, task_id)
-            if task:
-                task.status = state.get("task_status", "COMPLETED")
-                task.current_stage = state.get("current_stage")
-                task.finished_at = datetime.now(UTC)
-                task.updated_at = datetime.now(UTC)
-            session.add(
-                Report(
-                    task_id=task_id,
-                    draft_report=state.get("draft_report"),
-                    final_report=state.get("final_report"),
-                    quality_metrics_json=json.dumps(
-                        self._quality_metrics(state),
-                        ensure_ascii=False,
-                    ),
-                )
-            )
-            for competitor in state.get("competitors", []):
-                for source in competitor.get("sources", []):
-                    source_payload = {**source, "task_id": task_id}
-                    session.add(SourceRow(**source_payload))
-                for evidence in competitor.get("evidences", []):
-                    evidence_payload = {**evidence, "task_id": task_id}
-                    session.add(EvidenceRow(**evidence_payload))
-            session.commit()
+        self.repository.persist_result(task_id, state)
 
     def _update_status(
         self,
@@ -170,13 +192,7 @@ class TaskService:
             started_at=current.get("started_monotonic"),
         )
         self._tasks[task_id] = payload
-        with self.session_factory() as session:
-            task = session.get(Task, task_id)
-            if task:
-                task.status = status
-                task.current_stage = stage
-                task.updated_at = datetime.now(UTC)
-                session.commit()
+        self.repository.update_status(task_id, status, stage)
 
     def _mark_failed(self, task_id: str, message: str) -> None:
         self._tasks[task_id] = status_payload(
@@ -186,13 +202,7 @@ class TaskService:
             progress=1.0,
             started_at=self._tasks.get(task_id, {}).get("started_monotonic"),
         )
-        with self.session_factory() as session:
-            task = session.get(Task, task_id)
-            if task:
-                task.status = "FAILED"
-                task.error_message = message
-                task.updated_at = datetime.now(UTC)
-                session.commit()
+        self.repository.mark_failed(task_id, message)
 
     def get_status(self, task_id: str) -> dict:
         """Get task status.
@@ -214,50 +224,11 @@ class TaskService:
                     started_at=payload.get("started_monotonic"),
                 )
             return payload
-        with self.session_factory() as session:
-            task = session.get(Task, task_id)
-            if task is None:
-                return {"status": "NOT_FOUND"}
-            if task.status == "RUNNING":
-                task.status = "FAILED"
-                task.current_stage = "failed"
-                task.error_message = STALE_RUNNING_MESSAGE
-                task.updated_at = datetime.now(UTC)
-                session.commit()
-                return status_payload(
-                    status="FAILED",
-                    stage="failed",
-                    issues=[STALE_RUNNING_MESSAGE],
-                    progress=1.0,
-                    started_at=None,
-                )
-            progress = 1.0 if task.status in {"COMPLETED", "COMPLETED_WITH_WARNINGS"} else 0.0
-            return status_payload(
-                status=task.status,
-                stage=task.current_stage,
-                issues=[],
-                progress=progress,
-                started_at=None,
-            )
-
-    @staticmethod
-    def _quality_metrics(state: dict) -> dict:
-        sufficiency = dict(state.get("sufficiency", {}))
-        sufficiency["critic_issues"] = list(state.get("critic_issues", []))
-        sufficiency["issues"] = list(state.get("issues", []))
-        return sufficiency
+        return self.repository.get_status(task_id)
 
     def _mark_stale_running_tasks(self) -> None:
         try:
-            with self.session_factory() as session:
-                rows = session.query(Task).filter_by(status="RUNNING").all()
-                for task in rows:
-                    task.status = "FAILED"
-                    task.current_stage = "failed"
-                    task.error_message = STALE_RUNNING_MESSAGE
-                    task.updated_at = datetime.now(UTC)
-                if rows:
-                    session.commit()
+            self.repository.mark_stale_running_tasks()
         except Exception as exc:
             logger.warning("stale_task_cleanup_failed", extra={"error": str(exc)})
 
@@ -270,17 +241,4 @@ class TaskService:
         Returns:
             Report payload or None.
         """
-        with self.session_factory() as session:
-            report = (
-                session.query(Report)
-                .filter_by(task_id=task_id)
-                .order_by(Report.id.desc())
-                .first()
-            )
-            if report is None:
-                return None
-            return {
-                "task_id": task_id,
-                "report_markdown": report.final_report or report.draft_report or "",
-                "quality_metrics": json.loads(report.quality_metrics_json or "{}"),
-            }
+        return self.repository.get_report(task_id)

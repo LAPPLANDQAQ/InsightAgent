@@ -2,6 +2,9 @@
 
 from typing import Any
 
+APPEND_FIELDS = frozenset({"issues", "research_notes", "retrieved_chunks"})
+OVERWRITE_FIELDS = frozenset({"research_todos", "rag_metrics", "agent_metrics", "harness_metrics"})
+
 
 def merge_state(state: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
     """Merge a node update into workflow state.
@@ -14,10 +17,12 @@ def merge_state(state: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]
         Merged state.
     """
     merged = {**state, **update}
-    for key in ("issues", "research_notes", "retrieved_chunks"):
+    # These fields represent event-like accumulators emitted by multiple nodes.
+    for key in APPEND_FIELDS:
         if key in state or key in update:
             merged[key] = list(state.get(key, [])) + list(update.get(key, []))
-    for key in ("research_todos", "rag_metrics", "agent_metrics", "harness_metrics"):
+    # These fields represent latest snapshots; node updates intentionally replace prior values.
+    for key in OVERWRITE_FIELDS:
         if key in update:
             merged[key] = update[key]
     return merged

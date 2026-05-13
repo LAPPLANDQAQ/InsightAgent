@@ -55,12 +55,25 @@ def test_normalize_url_removes_tracking_params():
     assert normalize_url("HTTPS://Example.com/a/?utm_source=x&b=1#top") == "https://example.com/a?b=1"
 
 
+def test_normalize_url_handles_ports_fragments_and_query_order():
+    assert normalize_url("http://Example.com:80/a/#top") == "http://example.com/a"
+    assert normalize_url("https://Example.com:443/a?z=2&utm_term=x&a=1") == (
+        "https://example.com/a?a=1&z=2"
+    )
+
+
 def test_dedupe_search_results_preserves_first():
     results = [
-        SearchResult(title="A", url="https://example.com", snippet="", provider="s"),
-        SearchResult(title="B", url="https://example.com/", snippet="", provider="s"),
+        SearchResult(
+            title="A",
+            url="https://example.com?a=1&utm_campaign=x",
+            snippet="",
+            provider="s",
+        ),
+        SearchResult(title="B", url="https://example.com:443/?a=1#top", snippet="", provider="s"),
     ]
     assert dedupe_search_results(results)[0].title == "A"
+    assert len(dedupe_search_results(results)) == 1
 
 
 @pytest.mark.asyncio

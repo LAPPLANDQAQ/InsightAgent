@@ -1,9 +1,15 @@
 """TaskService persistence tests."""
 
-from app.infra.db.models import EvidenceRow, Task
+import asyncio
+
+import pytest
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.infra.db.models import EvidenceRow, Report, Task
 from app.infra.db.session import build_engine, build_session_factory
 from app.schemas.report import ReportResponse
-from app.services.task_service import TaskService
+from app.services.task_repository import TaskRepository
+from app.services.task_service import TaskLimitError, TaskService
 from app.services.task_status import STALE_RUNNING_MESSAGE
 
 
@@ -11,6 +17,92 @@ def _service(container_with_stubs) -> tuple[TaskService, object]:
     engine = build_engine("sqlite:///:memory:")
     session_factory = build_session_factory(engine)
     return TaskService(container_with_stubs, session_factory, run_background=False), session_factory
+
+
+class FakeGraph:
+    """Fake graph used to exercise task lifecycle behavior."""
+
+    def __init__(self, result: dict | None = None, error: Exception | None = None) -> None:
+        self.result = result or {
+            "task_status": "COMPLETED",
+            "current_stage": "finalize",
+            "draft_report": "# draft",
+            "final_report": "# final",
+            "issues": [],
+            "competitors": [],
+            "sufficiency": {"score": 1.0},
+        }
+        self.error = error
+
+    async def ainvoke(self, state: dict) -> dict:
+        """Return the configured result or raise the configured error."""
+        if self.error:
+            raise self.error
+        return {**state, **self.result}
+
+
+@pytest.mark.asyncio
+async def test_create_task_persists_success(container_with_stubs):
+    service, session_factory = _service(container_with_stubs)
+    service.graph = FakeGraph()
+
+    task_id = await service.create_task("query")
+
+    status = service.get_status(task_id)
+    report = service.get_report(task_id)
+    assert status["status"] == "COMPLETED"
+    assert status["issues"] == []
+    assert report["report_markdown"] == "# final"
+    with session_factory() as session:
+        task = session.get(Task, task_id)
+        assert task.status == "COMPLETED"
+        assert task.error_message is None
+
+
+@pytest.mark.asyncio
+async def test_create_task_persists_failure(container_with_stubs):
+    service, session_factory = _service(container_with_stubs)
+    service.graph = FakeGraph(error=RuntimeError("DeepSeek request timed out after retrying"))
+
+    task_id = await service.create_task("query")
+
+    status = service.get_status(task_id)
+    assert status["status"] == "FAILED"
+    assert "DeepSeek request timed out" in status["issues"][0]
+    with session_factory() as session:
+        task = session.get(Task, task_id)
+        assert task.status == "FAILED"
+        assert "DeepSeek request timed out" in task.error_message
+
+
+@pytest.mark.asyncio
+async def test_task_cancellation_marks_failed(container_with_stubs):
+    service, session_factory = _service(container_with_stubs)
+    service.graph = FakeGraph(error=asyncio.CancelledError())
+    service._create_row("task_cancel", "query")
+
+    with pytest.raises(asyncio.CancelledError):
+        await service._run_task("task_cancel", "query", [], [])
+
+    status = service.get_status("task_cancel")
+    assert status["status"] == "FAILED"
+    assert "cancelled" in status["issues"][0]
+    with session_factory() as session:
+        task = session.get(Task, "task_cancel")
+        assert task.status == "FAILED"
+        assert "cancelled" in task.error_message
+
+
+@pytest.mark.asyncio
+async def test_create_task_rejects_when_queue_is_full(container_with_stubs):
+    container_with_stubs.settings.max_queued_tasks = 1
+    service, session_factory = _service(container_with_stubs)
+    with session_factory() as session:
+        session.add(Task(id="task_pending", query="query", status="PENDING"))
+        session.commit()
+
+    with pytest.raises(TaskLimitError):
+        await service.create_task("another query")
 
 
 def test_persist_accepts_evidence_payload_with_task_id(container_with_stubs):
@@ -100,3 +192,62 @@ def test_get_status_marks_stale_running_task_failed(container_with_stubs):
         task = session.get(Task, "task_stale")
         assert task.status == "FAILED"
         assert task.error_message == STALE_RUNNING_MESSAGE
+
+
+def test_get_status_exposes_persisted_error_message(container_with_stubs):
+    service, session_factory = _service(container_with_stubs)
+    with session_factory() as session:
+        session.add(
+            Task(
+                id="task_failed",
+                query="query",
+                status="FAILED",
+                current_stage="failed",
+                error_message="provider unavailable",
+            )
+        )
+        session.commit()
+
+    status = service.get_status("task_failed")
+
+    assert status["status"] == "FAILED"
+    assert status["issues"] == ["provider unavailable"]
+
+
+def test_get_report_handles_malformed_quality_metrics(container_with_stubs):
+    service, session_factory = _service(container_with_stubs)
+    with session_factory() as session:
+        session.add(Task(id="task_report", query="query", status="COMPLETED"))
+        session.add(
+            Report(
+                task_id="task_report",
+                final_report="# final",
+                quality_metrics_json="{not json",
+            )
+        )
+        session.commit()
+
+    report = service.get_report("task_report")
+
+    assert report["report_markdown"] == "# final"
+    assert report["quality_metrics"]["error"] == "report quality metrics are malformed"
+
+
+def test_repository_rolls_back_failed_persist(container_with_stubs):
+    _, session_factory = _service(container_with_stubs)
+    repository = TaskRepository(session_factory)
+    repository.create_row("task_rollback", "query")
+    bad_state = {
+        "task_status": "COMPLETED",
+        "current_stage": "finalize",
+        "final_report": "# final",
+        "competitors": [{"sources": [{"source_id": "src_bad"}], "evidences": []}],
+    }
+
+    with pytest.raises(SQLAlchemyError):
+        repository.persist_result("task_rollback", bad_state)
+
+    with session_factory() as session:
+        task = session.get(Task, "task_rollback")
+        assert task.status == "PENDING"
+        assert session.query(Report).filter_by(task_id="task_rollback").count() == 0

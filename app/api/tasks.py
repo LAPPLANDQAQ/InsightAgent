@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.schemas.report import ReportResponse
 from app.schemas.task import CreateTaskRequest, TaskStatusResponse
+from app.services.task_service import TaskLimitError
 
 router = APIRouter(prefix="/api")
 
@@ -36,7 +37,10 @@ async def create_task(req: CreateTaskRequest, svc: TaskServiceDep) -> dict[str, 
     Returns:
         Created task identifier and initial status.
     """
-    task_id = await svc.create_task(req.query, req.competitors, req.dimensions)
+    try:
+        task_id = await svc.create_task(req.query, req.competitors, req.dimensions)
+    except TaskLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     return {"task_id": task_id, "status": "PENDING"}
 
 

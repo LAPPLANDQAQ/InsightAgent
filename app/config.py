@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     max_concurrent_fetch: int = Field(default=8, ge=1, le=30)
     max_concurrent_llm_heavy: int = Field(default=2, ge=1, le=5)
     max_concurrent_llm_light: int = Field(default=5, ge=1, le=20)
+    max_concurrent_tasks: int = Field(default=2, ge=1, le=10)
+    max_queued_tasks: int = Field(default=20, ge=1, le=200)
 
     max_iterations: int = Field(default=3, ge=1, le=5)
     max_search_rounds_per_competitor: int = Field(default=3, ge=1, le=6)

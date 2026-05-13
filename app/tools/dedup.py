@@ -5,7 +5,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from app.infra.search.base import SearchResult
 from app.schemas.evidence import EvidenceItem
 
-TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "ref"}
+TRACKING_PARAMS = {"ref"}
 
 
 def normalize_url(url: str) -> str:
@@ -15,17 +15,24 @@ def normalize_url(url: str) -> str:
         url: Raw URL.
 
     Returns:
-        URL with lowercase host, stripped fragment, and removed tracking params.
+        URL with lowercase scheme/host, stripped fragment, default ports removed,
+        stable query ordering, and removed tracking params.
     """
     parsed = urlsplit(url.strip())
     query_items = [
         (key, value)
-        for key, value in parse_qsl(parsed.query)
-        if key.lower() not in TRACKING_PARAMS
+        for key, value in sorted(parse_qsl(parsed.query))
+        if not key.lower().startswith("utm_") and key.lower() not in TRACKING_PARAMS
     ]
     query = urlencode(query_items)
     path = parsed.path.rstrip("/") or "/"
-    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, query, ""))
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
+    if scheme == "http" and netloc.endswith(":80"):
+        netloc = netloc[:-3]
+    if scheme == "https" and netloc.endswith(":443"):
+        netloc = netloc[:-4]
+    return urlunsplit((scheme, netloc, path, query, ""))
 
 
 def dedupe_search_results(results: list[SearchResult]) -> list[SearchResult]:

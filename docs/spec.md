@@ -1,5 +1,18 @@
-# InsightAgent Spec Pointer
+# InsightAgent Stable Local Scope
 
-The full execution spec is stored in this directory:
+This repository is scoped as a local, interview-ready AI agent project.
 
-`docs/InsightAgent_Codex执行规约_v6_审查修复版.md`
+The stable runtime is intentionally narrow:
+
+- FastAPI task API and health check.
+- Streamlit local demo UI.
+- LangGraph multi-agent research workflow.
+- DeepSeek-only LLM runtime.
+- SQLite default persistence and cache.
+- Safe fetch/search abstractions with deterministic tests.
+- Read-only MCP adapter by default.
+- Local evaluation metrics without unverified measured claims.
+
+Historical upgrade prompts and one-off review logs have been removed from the active docs set. Current
+architecture, RAG, harness, MCP, evaluation, stable release notes, and deferred items are documented in
+the focused files under `docs/`.

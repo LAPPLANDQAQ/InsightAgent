@@ -83,6 +83,10 @@ class Researcher(AgentBase):
             except Exception as exc:
                 issues.append(f"search_failed:{competitor_name}:{exc}")
                 continue
+            issues.extend(search_result.issues)
+            if not search_result.results:
+                issues.append(f"search_empty:{competitor_name}:{query}")
+                continue
             for index, result in enumerate(search_result.results):
                 source_id = f"src_{competitor_name}_{len(sources) + 1}".replace(" ", "_")
                 source = self.classifier_tool.run(

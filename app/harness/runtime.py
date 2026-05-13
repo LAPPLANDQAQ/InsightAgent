@@ -60,11 +60,10 @@ class HarnessRuntime:
     def run_tool(self, task_id: str, tool_name: str, **kwargs: Any) -> Any:
         """Run a registered tool after policy checks."""
         tool = self.registry.get(tool_name)
-        decision = self.policy_engine.check_tool(task_id, tool)
+        decision = self.policy_engine.acquire_slot(task_id, tool)
         if not decision.allowed or decision.requires_approval:
             raise PermissionError(decision.reason or "tool_blocked")
         assert tool is not None
-        self.policy_engine.record_call(task_id)
         run_id = f"run_{uuid4().hex}"
         self.trace_store.append(
             create_event(run_id=run_id, task_id=task_id, event_type="tool_start", name=tool_name)

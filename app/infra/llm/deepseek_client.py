@@ -4,11 +4,17 @@ import json
 import re
 from typing import Any, TypeVar
 
+import httpx
 from pydantic import BaseModel, ValidationError
 
 from app.infra.llm.base import LLMClient, LLMOutputError, ModelRole
 
 T = TypeVar("T", bound=BaseModel)
+RETRY_ATTEMPTS = 2
+SECRET_ASSIGNMENT_RE = re.compile(
+    r"(?i)\b(api[_-]?key|token|secret|password)=([^,\s\]\)'\"]+)"
+)
+SECRET_TOKEN_RE = re.compile(r"\bsk-[A-Za-z0-9._-]+")
 
 
 class DeepSeekClient(LLMClient):
@@ -105,7 +111,7 @@ class DeepSeekClient(LLMClient):
         parsed = self._parse_schema(content, schema=schema, allow_extract=False)
         if parsed is not None:
             return parsed
-        errors.append(content[:200])
+        errors.append(self._diagnostic(content))
 
         content = await self._complete(
             prompt=json_prompt,
@@ -117,7 +123,7 @@ class DeepSeekClient(LLMClient):
         parsed = self._parse_schema(content, schema=schema, allow_extract=True)
         if parsed is not None:
             return parsed
-        errors.append(content[:200])
+        errors.append(self._diagnostic(content))
         raise LLMOutputError(f"LLM output cannot be parsed as {schema.__name__}: {errors}")
 
     async def _complete(
@@ -130,8 +136,49 @@ class DeepSeekClient(LLMClient):
         timeout: float,
         response_format: dict[str, str] | None = None,
     ) -> str:
+        roles: list[ModelRole] = [model_role]
+        if model_role != "fallback" and self._models["fallback"] != self._models[model_role]:
+            roles.append("fallback")
+
+        errors: list[str] = []
+        for role in roles:
+            model = self._models[role]
+            for attempt in range(1, RETRY_ATTEMPTS + 1):
+                try:
+                    content = await self._complete_once(
+                        prompt=prompt,
+                        model=model,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        timeout=timeout,
+                        response_format=response_format,
+                    )
+                    if not content.strip():
+                        raise LLMOutputError("LLM returned empty content")
+                    return content
+                except LLMOutputError:
+                    raise
+                except Exception as exc:
+                    errors.append(f"{model}: {self._safe_error(exc)}")
+                    if not self._is_transient_error(exc) or attempt >= RETRY_ATTEMPTS:
+                        break
+        raise LLMOutputError(
+            "DeepSeek request failed after retrying configured model"
+            f"{'s' if len(roles) > 1 else ''}: {errors[-3:]}"
+        )
+
+    async def _complete_once(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        max_tokens: int,
+        temperature: float,
+        timeout: float,
+        response_format: dict[str, str] | None = None,
+    ) -> str:
         kwargs: dict[str, Any] = {
-            "model": self._models[model_role],
+            "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
             "temperature": temperature,
@@ -141,6 +188,44 @@ class DeepSeekClient(LLMClient):
             kwargs["response_format"] = response_format
         response = await self._client.chat.completions.create(**kwargs)
         return self._message_content(response)
+
+    @staticmethod
+    def _is_transient_error(exc: Exception) -> bool:
+        if isinstance(
+            exc,
+            (
+                TimeoutError,
+                ConnectionError,
+                httpx.TimeoutException,
+                httpx.NetworkError,
+                httpx.RemoteProtocolError,
+            ),
+        ):
+            return True
+        status_code = getattr(exc, "status_code", None)
+        if isinstance(status_code, int) and (status_code == 429 or status_code >= 500):
+            return True
+        name = type(exc).__name__.lower()
+        return any(
+            marker in name
+            for marker in (
+                "timeout",
+                "connection",
+                "ratelimit",
+                "rate_limit",
+                "internalserver",
+            )
+        )
+
+    @staticmethod
+    def _safe_error(exc: Exception) -> str:
+        status_code = getattr(exc, "status_code", None)
+        if isinstance(status_code, int):
+            return f"{type(exc).__name__}(status_code={status_code})"
+        message = DeepSeekClient._redact_secret_like(str(exc).replace("\n", " ").strip())
+        if len(message) > 160:
+            message = message[:157] + "..."
+        return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
     @staticmethod
     def _message_content(response: Any) -> str:
@@ -191,3 +276,13 @@ class DeepSeekClient(LLMClient):
         if first_object:
             return first_object.group(0).strip()
         return None
+
+    @staticmethod
+    def _diagnostic(content: str) -> str:
+        preview = DeepSeekClient._redact_secret_like(" ".join(content.split()))[:120]
+        return f"len={len(content)} preview={preview!r}"
+
+    @staticmethod
+    def _redact_secret_like(text: str) -> str:
+        redacted = SECRET_ASSIGNMENT_RE.sub(r"\1=[REDACTED]", text)
+        return SECRET_TOKEN_RE.sub("[REDACTED]", redacted)
