@@ -27,3 +27,32 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Coverage and validation artifacts
+.coverage
+coverage.xml
+htmlcov/
+.validation/
+
+# Local logs and scratch outputs
+*.log
+tmp/
+temp/
+scratch/
+
+# Local prompt / agent scratch files
+*_Prompt.md
+*_prompt.md
+*_review.md
+*_audit.md
+*_acceptance*.md
+CLAUDE.local.md
+CODEX.local.md
+AGENTS.local.md
+prompts/
+.agent/
+.codex/
+.claude/
+
+# Streamlit local secrets
+.streamlit/secrets.toml
