@@ -15,17 +15,23 @@ from frontend.components.evidence_viewer import citation_summary
 API_BASE = os.getenv("INSIGHT_API_BASE", "http://127.0.0.1:8000").rstrip("/")
 POLL_INTERVAL_SECONDS = 2
 MAX_POLL_SECONDS = int(os.getenv("INSIGHT_FRONTEND_MAX_POLL_SECONDS", "900"))
+REPORT_RETRY_ATTEMPTS = 3
+REPORT_RETRY_INTERVAL_SECONDS = 1
+TRANSIENT_STATUS_CODES = {429, 503}
 HTTP_CLIENT = httpx.Client(
     timeout=20.0,
     limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
 )
 FINAL_STATUSES = {"COMPLETED", "COMPLETED_WITH_WARNINGS", "FAILED"}
 STAGES = [
-    ("planner", "Plan"),
-    ("researcher", "Research"),
-    ("analyst", "Analyze"),
-    ("writer", "Write"),
-    ("critic", "Review"),
+    ("queued", "Queued"),
+    ("planner", "Planning"),
+    ("researcher", "Researching"),
+    ("sufficiency_check", "Checking Evidence Sufficiency"),
+    ("analyst", "Analyzing"),
+    ("writer", "Writing Report"),
+    ("critic", "Reviewing"),
+    ("finalize", "Finalizing"),
 ]
 
 
@@ -51,6 +57,18 @@ def _stage_index(stage: str | None) -> int:
         if name == stage:
             return index
     return -1
+
+
+def _is_transient_http_error(exc: httpx.HTTPStatusError) -> bool:
+    """Return whether an HTTP status error should be retried while polling."""
+    return exc.response.status_code in TRANSIENT_STATUS_CODES
+
+
+def _require_field(payload: dict[str, Any], field: str) -> Any:
+    """Return a required backend response field."""
+    if field not in payload:
+        raise ValueError(f"Backend response missing field: {field}")
+    return payload[field]
 
 
 def _render_status_panel(status: dict[str, Any] | None) -> None:
@@ -95,14 +113,17 @@ def _create_task(query: str, competitors: list[str], dimensions: list[str]) -> s
         json={"query": query, "competitors": competitors, "dimensions": dimensions},
     )
     response.raise_for_status()
-    return str(response.json()["task_id"])
+    payload = response.json()
+    return str(_require_field(payload, "task_id"))
 
 
 def _get_status(task_id: str) -> dict[str, Any]:
     """Fetch task status."""
     response = HTTP_CLIENT.get(f"{API_BASE}/api/tasks/{task_id}")
     response.raise_for_status()
-    return response.json()
+    payload = response.json()
+    _require_field(payload, "status")
+    return payload
 
 
 def _get_report(task_id: str) -> dict[str, Any]:
@@ -111,12 +132,30 @@ def _get_report(task_id: str) -> dict[str, Any]:
     if response.status_code == 404:
         raise ReportNotReadyError("Report is not ready yet. Please refresh later.")
     response.raise_for_status()
-    return response.json()
+    payload = response.json()
+    _require_field(payload, "task_id")
+    _require_field(payload, "status")
+    _require_field(payload, "report_markdown")
+    _require_field(payload, "quality_metrics")
+    return payload
+
+
+def _get_report_with_retries(task_id: str) -> dict[str, Any]:
+    """Fetch a report with a short grace period after a final status."""
+    last_error: ReportNotReadyError | None = None
+    for attempt in range(REPORT_RETRY_ATTEMPTS):
+        try:
+            return _get_report(task_id)
+        except ReportNotReadyError as exc:
+            last_error = exc
+            if attempt < REPORT_RETRY_ATTEMPTS - 1:
+                time.sleep(REPORT_RETRY_INTERVAL_SECONDS)
+    raise last_error or ReportNotReadyError("Report is not ready yet. Please refresh later.")
 
 
 def _split_csv(text: str) -> list[str]:
     """Split comma separated input into normalized values."""
-    return [item.strip() for item in text.replace("，", ",").split(",") if item.strip()]
+    return [item.strip() for item in text.replace("\uff0c", ",").split(",") if item.strip()]
 
 
 def _coverage_items(quality_metrics: dict[str, Any]) -> list[dict[str, Any]]:
@@ -327,26 +366,44 @@ def main() -> None:
             latest_status: dict[str, Any] | None = None
             poll_started = time.monotonic()
             while True:
-                latest_status = _get_status(task_id)
+                try:
+                    latest_status = _get_status(task_id)
+                except httpx.HTTPStatusError as exc:
+                    if _is_transient_http_error(exc) and not _poll_timed_out(
+                        poll_started,
+                        time.monotonic(),
+                        MAX_POLL_SECONDS,
+                    ):
+                        report_box.warning("Backend is busy. Retrying status poll...")
+                        time.sleep(POLL_INTERVAL_SECONDS)
+                        continue
+                    raise
+                except (httpx.TimeoutException, httpx.TransportError):
+                    if not _poll_timed_out(poll_started, time.monotonic(), MAX_POLL_SECONDS):
+                        report_box.warning("Backend status poll failed. Retrying...")
+                        time.sleep(POLL_INTERVAL_SECONDS)
+                        continue
+                    raise
                 with status_box.container():
                     _render_status_panel(latest_status)
-                if latest_status["status"] in FINAL_STATUSES:
+                latest_state = str(_require_field(latest_status, "status"))
+                if latest_state in FINAL_STATUSES:
                     break
                 if _poll_timed_out(poll_started, time.monotonic(), MAX_POLL_SECONDS):
                     report_box.warning("Task is still running. Refresh later to continue polling.")
                     break
                 time.sleep(POLL_INTERVAL_SECONDS)
-            if latest_status and latest_status["status"] == "FAILED":
+            if latest_status and str(_require_field(latest_status, "status")) == "FAILED":
                 _render_failed_task(report_box, latest_status)
-            elif latest_status and latest_status["status"] in FINAL_STATUSES:
+            elif latest_status and str(_require_field(latest_status, "status")) in FINAL_STATUSES:
                 try:
-                    report = _get_report(task_id)
+                    report = _get_report_with_retries(task_id)
                 except ReportNotReadyError as exc:
                     report_box.info(str(exc))
                 else:
                     with report_box.container():
                         _render_report_result(report)
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, ValueError) as exc:
             report_box.error(f"Backend request failed: {exc}")
             _render_api_failure(status_box, exc)
 

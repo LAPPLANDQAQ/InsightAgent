@@ -3,18 +3,22 @@
 from time import monotonic
 
 STAGE_LABELS = {
-    "queued": "排队中",
-    "planner": "规划调研方案",
-    "researcher": "搜索资料并抽取证据",
-    "sufficiency_check": "检查证据充分性",
-    "analyst": "分析竞品差异",
-    "writer": "生成报告",
-    "critic": "质量检查",
-    "finalize": "整理最终结果",
-    "failed": "任务失败",
-    "completed": "任务完成",
+    "queued": "Queued",
+    "planner": "Planning",
+    "researcher": "Researching",
+    "sufficiency_check": "Checking Evidence Sufficiency",
+    "analyst": "Analyzing",
+    "writer": "Writing Report",
+    "critic": "Reviewing",
+    "finalize": "Finalizing",
+    "research_router": "Routing Research",
+    "rag_indexer": "Indexing Evidence",
+    "rag_researcher": "Retrieving Evidence",
+    "task_summarizer": "Summarizing Research",
+    "failed": "Failed",
+    "completed": "Completed",
 }
-STALE_RUNNING_MESSAGE = "服务重启后任务执行上下文丢失，已标记为失败。"
+STALE_RUNNING_MESSAGE = "Task execution context was lost after service restart; marked as failed."
 
 
 def status_payload(
@@ -42,7 +46,7 @@ def status_payload(
     return {
         "status": status,
         "stage": stage,
-        "stage_label": STAGE_LABELS.get(stage or "", stage or "未知阶段"),
+        "stage_label": STAGE_LABELS.get(stage or "", stage or "Unknown Stage"),
         "progress": clamped,
         "estimated_remaining_seconds": eta,
         "issues": issues,

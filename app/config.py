@@ -49,14 +49,14 @@ class Settings(BaseSettings):
 
     llm_provider: Literal["deepseek"] = "deepseek"
     llm_base_url: str = DEEPSEEK_DEFAULT_BASE_URL
-    deepseek_api_key: str = ""
+    deepseek_api_key: str = Field(default="", exclude=True, repr=False)
     llm_heavy_model: str = "deepseek-v4-pro"
     llm_light_model: str = "deepseek-v4-flash"
     llm_fallback_model: str = "deepseek-v4-flash"
     enforce_provider_model_guard: bool = True
 
     search_providers: str = "tavily,duckduckgo"
-    tavily_api_key: str = ""
+    tavily_api_key: str = Field(default="", exclude=True, repr=False)
 
     cache_backend: Literal["sqlite", "memory"] = "sqlite"
     db_url: str = "sqlite:///./data/insight.db"
@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     max_concurrent_llm_light: int = Field(default=5, ge=1, le=20)
     max_concurrent_tasks: int = Field(default=2, ge=1, le=10)
     max_queued_tasks: int = Field(default=20, ge=1, le=200)
+    task_timeout_seconds: int = Field(default=900, ge=30, le=7200)
 
     max_iterations: int = Field(default=3, ge=1, le=5)
     max_search_rounds_per_competitor: int = Field(default=3, ge=1, le=6)
@@ -87,7 +88,7 @@ class Settings(BaseSettings):
     harness_require_approval_for_high_risk: bool = True
     enable_mcp_server: bool = True
     mcp_transport: Literal["stdio"] = "stdio"
-    mcp_http_auth_token: str = ""
+    mcp_http_auth_token: str = Field(default="", exclude=True, repr=False)
     mcp_allow_write_tools: bool = False
     mcp_allow_localhost: bool = False
     enable_reranker: bool = False
@@ -98,6 +99,7 @@ class Settings(BaseSettings):
     max_heavy_calls_per_task: int = Field(default=8, ge=1, le=20)
     max_heavy_tokens_per_task: int = Field(default=35000, ge=1000)
     max_light_tokens_per_task: int = Field(default=100000, ge=1000)
+    search_provider_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
 
     @model_validator(mode="after")
     def validate_runtime_models(self) -> "Settings":

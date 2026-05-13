@@ -42,6 +42,7 @@ class Container:
             self._search_providers(),
             self.cache,
             settings.max_concurrent_search,
+            provider_timeout_seconds=settings.search_provider_timeout_seconds,
         )
         self.fetch_client = HttpxFetchClient(self.cache)
         self.search_tool = SearchTool(self.search_service)

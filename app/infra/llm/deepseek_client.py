@@ -8,13 +8,14 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from app.infra.llm.base import LLMClient, LLMOutputError, ModelRole
+from app.infra.security.redaction import redact_secret_like
 
 T = TypeVar("T", bound=BaseModel)
 RETRY_ATTEMPTS = 2
-SECRET_ASSIGNMENT_RE = re.compile(
-    r"(?i)\b(api[_-]?key|token|secret|password)=([^,\s\]\)'\"]+)"
-)
-SECRET_TOKEN_RE = re.compile(r"\bsk-[A-Za-z0-9._-]+")
+
+
+class EmptyLLMContentError(RuntimeError):
+    """Raised internally when the upstream LLM returns empty content."""
 
 
 class DeepSeekClient(LLMClient):
@@ -154,7 +155,7 @@ class DeepSeekClient(LLMClient):
                         response_format=response_format,
                     )
                     if not content.strip():
-                        raise LLMOutputError("LLM returned empty content")
+                        raise EmptyLLMContentError("LLM returned empty content")
                     return content
                 except LLMOutputError:
                     raise
@@ -191,6 +192,8 @@ class DeepSeekClient(LLMClient):
 
     @staticmethod
     def _is_transient_error(exc: Exception) -> bool:
+        if isinstance(exc, EmptyLLMContentError):
+            return True
         if isinstance(
             exc,
             (
@@ -222,7 +225,7 @@ class DeepSeekClient(LLMClient):
         status_code = getattr(exc, "status_code", None)
         if isinstance(status_code, int):
             return f"{type(exc).__name__}(status_code={status_code})"
-        message = DeepSeekClient._redact_secret_like(str(exc).replace("\n", " ").strip())
+        message = redact_secret_like(str(exc).replace("\n", " ").strip())
         if len(message) > 160:
             message = message[:157] + "..."
         return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
@@ -279,10 +282,5 @@ class DeepSeekClient(LLMClient):
 
     @staticmethod
     def _diagnostic(content: str) -> str:
-        preview = DeepSeekClient._redact_secret_like(" ".join(content.split()))[:120]
+        preview = redact_secret_like(" ".join(content.split()))[:120]
         return f"len={len(content)} preview={preview!r}"
-
-    @staticmethod
-    def _redact_secret_like(text: str) -> str:
-        redacted = SECRET_ASSIGNMENT_RE.sub(r"\1=[REDACTED]", text)
-        return SECRET_TOKEN_RE.sub("[REDACTED]", redacted)

@@ -16,6 +16,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 from app.infra.cache.base import CacheBackend
 from app.infra.fetch.base import FetchResult
 from app.infra.logger import get_logger
+from app.infra.security.redaction import redact_secret_like
 
 MAX_RESPONSE_BYTES = 2_000_000
 MAX_REDIRECTS = 5
@@ -114,7 +115,7 @@ class HttpxFetchClient:
                 title="",
                 text="",
                 status_code=0,
-                error=str(exc),
+                error=redact_secret_like(str(exc)),
                 fetched_at=fetched_at,
             )
 
@@ -137,8 +138,11 @@ class HttpxFetchClient:
                 return extracted.strip()
         except ImportError:
             pass
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "trafilatura_extract_failed",
+                extra={"error": redact_secret_like(str(exc))},
+            )
         try:
             from bs4 import BeautifulSoup
 

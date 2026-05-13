@@ -40,7 +40,11 @@ async def create_task(req: CreateTaskRequest, svc: TaskServiceDep) -> dict[str, 
     try:
         task_id = await svc.create_task(req.query, req.competitors, req.dimensions)
     except TaskLimitError as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": "30"},
+        ) from exc
     return {"task_id": task_id, "status": "PENDING"}
 
 

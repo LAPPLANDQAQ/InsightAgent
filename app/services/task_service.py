@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.graph.workflow import build_graph
 from app.infra.logger import get_logger
+from app.infra.security.redaction import redact_secret_like
 from app.services.task_repository import TaskRepository
 from app.services.task_status import status_payload
 
@@ -102,16 +103,19 @@ class TaskService:
         self._tasks.setdefault(task_id, {})["started_monotonic"] = monotonic()
         self._update_status(task_id, "RUNNING", "planner", [], progress=0.05)
         try:
-            final = await self.graph.ainvoke(
-                {
-                    "task_id": task_id,
-                    "user_query": query,
-                    "requested_competitors": competitors,
-                    "requested_dimensions": dimensions,
-                    "max_iterations": self.container.settings.max_iterations,
-                    "sufficiency_threshold": self.container.settings.sufficiency_threshold,
-                    "token_usage": {},
-                }
+            final = await asyncio.wait_for(
+                self.graph.ainvoke(
+                    {
+                        "task_id": task_id,
+                        "user_query": query,
+                        "requested_competitors": competitors,
+                        "requested_dimensions": dimensions,
+                        "max_iterations": self.container.settings.max_iterations,
+                        "sufficiency_threshold": self.container.settings.sufficiency_threshold,
+                        "token_usage": {},
+                    }
+                ),
+                timeout=self.container.settings.task_timeout_seconds,
             )
             self._persist(task_id, final)
             self._update_status(
@@ -126,9 +130,18 @@ class TaskService:
             logger.warning("task_cancelled", extra={"task_id": task_id})
             self._mark_failed(task_id, message)
             raise
+        except TimeoutError:
+            timeout = self.container.settings.task_timeout_seconds
+            message = f"task timed out after {timeout} seconds"
+            logger.warning("task_timed_out", extra={"task_id": task_id})
+            self._mark_failed(task_id, message)
         except Exception as exc:
-            logger.exception("task_failed", extra={"task_id": task_id})
-            self._mark_failed(task_id, str(exc))
+            message = redact_secret_like(str(exc))
+            logger.warning(
+                "task_failed",
+                extra={"task_id": task_id, "error_type": type(exc).__name__, "error": message},
+            )
+            self._mark_failed(task_id, message)
 
     def _task_done(self, task_id: str, completed: asyncio.Task[None]) -> None:
         self._background_tasks.pop(task_id, None)
@@ -137,9 +150,10 @@ class TaskService:
         try:
             completed.result()
         except Exception as exc:
+            error = redact_secret_like(str(exc))
             logger.warning(
                 "background_task_error_consumed",
-                extra={"task_id": task_id, "error": str(exc)},
+                extra={"task_id": task_id, "error": error},
             )
 
     def _task_done_callback(self, task_id: str) -> Callable[[asyncio.Task[None]], None]:
@@ -230,7 +244,10 @@ class TaskService:
         try:
             self.repository.mark_stale_running_tasks()
         except Exception as exc:
-            logger.warning("stale_task_cleanup_failed", extra={"error": str(exc)})
+            logger.warning(
+                "stale_task_cleanup_failed",
+                extra={"error": redact_secret_like(str(exc))},
+            )
 
     def get_report(self, task_id: str) -> dict | None:
         """Get the latest report for a task.

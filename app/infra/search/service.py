@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from app.infra.cache.base import CacheBackend
 from app.infra.logger import get_logger
 from app.infra.search.base import SearchProvider, SearchResult
+from app.infra.security.redaction import redact_secret_like
 from app.tools.dedup import normalize_url
 
 logger = get_logger(__name__)
@@ -21,9 +22,11 @@ class SearchService:
         providers: Sequence[SearchProvider],
         cache: CacheBackend | None = None,
         max_concurrency: int = 5,
+        provider_timeout_seconds: float = 10.0,
     ) -> None:
         self.providers = list(providers)
         self.cache = cache
+        self.provider_timeout_seconds = provider_timeout_seconds
         self._semaphore = asyncio.Semaphore(max_concurrency)
 
     async def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
@@ -78,12 +81,26 @@ class SearchService:
     ) -> tuple[list[SearchResult], str | None]:
         async with self._semaphore:
             try:
-                return await provider.search(query, max_results), None
+                return (
+                    await asyncio.wait_for(
+                        provider.search(query, max_results),
+                        timeout=self.provider_timeout_seconds,
+                    ),
+                    None,
+                )
+            except TimeoutError:
+                warning = f"search provider {provider.name} timed out"
+                logger.warning(
+                    "search_provider_timed_out",
+                    extra={"provider": provider.name, "query": query},
+                )
+                return [], warning
             except Exception as exc:
-                warning = f"search provider {provider.name} failed: {exc}"
+                error = redact_secret_like(str(exc))
+                warning = f"search provider {provider.name} failed: {error}"
                 logger.warning(
                     "search_provider_failed",
-                    extra={"provider": provider.name, "query": query, "error": str(exc)},
+                    extra={"provider": provider.name, "query": query, "error": error},
                 )
                 return [], warning
 

@@ -22,7 +22,12 @@ def _service(container_with_stubs) -> tuple[TaskService, object]:
 class FakeGraph:
     """Fake graph used to exercise task lifecycle behavior."""
 
-    def __init__(self, result: dict | None = None, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        result: dict | None = None,
+        error: Exception | None = None,
+        delay_seconds: float = 0.0,
+    ) -> None:
         self.result = result or {
             "task_status": "COMPLETED",
             "current_stage": "finalize",
@@ -33,9 +38,12 @@ class FakeGraph:
             "sufficiency": {"score": 1.0},
         }
         self.error = error
+        self.delay_seconds = delay_seconds
 
     async def ainvoke(self, state: dict) -> dict:
         """Return the configured result or raise the configured error."""
+        if self.delay_seconds:
+            await asyncio.sleep(self.delay_seconds)
         if self.error:
             raise self.error
         return {**state, **self.result}
@@ -76,6 +84,25 @@ async def test_create_task_persists_failure(container_with_stubs):
 
 
 @pytest.mark.asyncio
+async def test_create_task_failure_redacts_secret_like_message(container_with_stubs):
+    service, session_factory = _service(container_with_stubs)
+    service.graph = FakeGraph(error=RuntimeError("failed with api_key=sk-secret token=abc123"))
+
+    task_id = await service.create_task("query")
+
+    status = service.get_status(task_id)
+    assert status["status"] == "FAILED"
+    assert "api_key=[REDACTED]" in status["issues"][0]
+    assert "token=[REDACTED]" in status["issues"][0]
+    assert "sk-secret" not in status["issues"][0]
+    assert "abc123" not in status["issues"][0]
+    with session_factory() as session:
+        task = session.get(Task, task_id)
+        assert "sk-secret" not in task.error_message
+        assert "abc123" not in task.error_message
+
+
+@pytest.mark.asyncio
 async def test_task_cancellation_marks_failed(container_with_stubs):
     service, session_factory = _service(container_with_stubs)
     service.graph = FakeGraph(error=asyncio.CancelledError())
@@ -103,6 +130,29 @@ async def test_create_task_rejects_when_queue_is_full(container_with_stubs):
 
     with pytest.raises(TaskLimitError):
         await service.create_task("another query")
+
+
+@pytest.mark.asyncio
+async def test_task_timeout_marks_failed_and_releases_slot(container_with_stubs):
+    container_with_stubs.settings.task_timeout_seconds = 1
+    container_with_stubs.settings.max_concurrent_tasks = 1
+    service, session_factory = _service(container_with_stubs)
+    service.graph = FakeGraph(delay_seconds=2.0)
+
+    timed_out_task = await service.create_task("query")
+    timeout_status = service.get_status(timed_out_task)
+
+    service.graph = FakeGraph()
+    completed_task = await service.create_task("query")
+    completed_status = service.get_status(completed_task)
+
+    assert timeout_status["status"] == "FAILED"
+    assert "timed out" in timeout_status["issues"][0]
+    assert completed_status["status"] == "COMPLETED"
+    with session_factory() as session:
+        task = session.get(Task, timed_out_task)
+        assert task.status == "FAILED"
+        assert "timed out" in task.error_message
 
 
 def test_persist_accepts_evidence_payload_with_task_id(container_with_stubs):

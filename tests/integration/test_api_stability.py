@@ -112,3 +112,19 @@ def test_api_failed_task_status_exposes_issue(monkeypatch, tmp_path, container_w
     assert status.json()["status"] == "FAILED"
     assert status.json()["issues"] == ["upstream timeout"]
     assert report.status_code == 404
+
+
+def test_api_queue_full_response_includes_retry_after(
+    monkeypatch,
+    tmp_path,
+    container_with_stubs,
+):
+    app = _create_test_app(monkeypatch, tmp_path)
+    _install_task_service(app, container_with_stubs, FakeGraph(), tmp_path)
+    app.state.task_service.repository.active_task_count = lambda: 999
+    client = TestClient(app)
+
+    response = client.post("/api/tasks", json={"query": "AI coding assistants"})
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "30"

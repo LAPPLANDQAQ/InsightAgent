@@ -1,5 +1,10 @@
 """Search and fetch infrastructure tests."""
 
+import asyncio
+import logging
+import sys
+from types import SimpleNamespace
+
 import httpx
 import pytest
 
@@ -12,6 +17,16 @@ from app.infra.search.service import SearchService
 from app.infra.search.tavily import TavilyProvider
 from app.tools.search_tool import SearchTool
 from tests.fixtures.stub_search import StubSearchProvider
+
+
+class SlowSearchProvider:
+    """Search provider that sleeps longer than the configured timeout."""
+
+    name = "slow"
+
+    async def search(self, query: str, max_results: int) -> list[SearchResult]:
+        await asyncio.sleep(0.2)
+        return []
 
 
 @pytest.mark.asyncio
@@ -40,6 +55,36 @@ async def test_search_service_continues_after_provider_failure():
 
 
 @pytest.mark.asyncio
+async def test_search_service_times_out_one_provider_and_continues():
+    working = StubSearchProvider()
+    service = SearchService(
+        [SlowSearchProvider(), working],
+        MemoryCache(),
+        provider_timeout_seconds=0.01,
+    )
+
+    results, warnings = await service.search_with_diagnostics("query", max_results=1)
+
+    assert results[0].provider == "stub"
+    assert "search provider slow timed out" in warnings
+
+
+@pytest.mark.asyncio
+async def test_search_service_times_out_all_providers():
+    service = SearchService(
+        [SlowSearchProvider()],
+        MemoryCache(),
+        provider_timeout_seconds=0.01,
+    )
+
+    results, warnings = await service.search_with_diagnostics("query", max_results=1)
+
+    assert results == []
+    assert "search provider slow timed out" in warnings
+    assert "all search providers failed" in warnings
+
+
+@pytest.mark.asyncio
 async def test_search_service_returns_warning_when_all_providers_fail():
     service = SearchService([StubSearchProvider(fail=True)], MemoryCache())
     results, warnings = await service.search_with_diagnostics("query", max_results=1)
@@ -48,6 +93,24 @@ async def test_search_service_returns_warning_when_all_providers_fail():
     assert results == []
     assert "all search providers failed" in warnings
     assert "all search providers failed" in tool_result.issues
+
+
+@pytest.mark.asyncio
+async def test_search_service_redacts_secret_values_in_warning():
+    provider = StubSearchProvider(fail=True)
+    provider.name = "tavily"
+
+    async def fail_with_secret(query: str, max_results: int) -> list[SearchResult]:
+        raise RuntimeError("request failed with api_key=tvly-secret")
+
+    provider.search = fail_with_secret
+    service = SearchService([provider], MemoryCache())
+
+    _, warnings = await service.search_with_diagnostics("query", max_results=1)
+
+    warning_text = " ".join(warnings)
+    assert "api_key=[REDACTED]" in warning_text
+    assert "tvly-secret" not in warning_text
 
 
 @pytest.mark.asyncio
@@ -129,6 +192,24 @@ async def test_httpx_fetch_client_extracts_and_caches():
     assert calls == 1
 
 
+def test_httpx_fetch_client_logs_trafilatura_failure(monkeypatch, caplog):
+    def fail_extract(raw_html: str) -> str:
+        raise RuntimeError("parser exploded with api_key=sk-secret")
+
+    monkeypatch.setitem(sys.modules, "trafilatura", SimpleNamespace(extract=fail_extract))
+
+    with caplog.at_level(logging.WARNING):
+        text = HttpxFetchClient._extract_text("<html><body>Hello</body></html>")
+
+    assert "Hello" in text
+    assert "trafilatura_extract_failed" in caplog.text
+    assert any(
+        getattr(record, "error", None) == "parser exploded with api_key=[REDACTED]"
+        for record in caplog.records
+    )
+    assert "sk-secret" not in caplog.text
+
+
 @pytest.mark.asyncio
 async def test_httpx_fetch_client_returns_error_result():
     def handler(request: httpx.Request) -> httpx.Response:
@@ -138,6 +219,18 @@ async def test_httpx_fetch_client_returns_error_result():
     result = await client.fetch("https://example.com")
     assert result.error
     assert result.status_code == 0
+
+
+@pytest.mark.asyncio
+async def test_httpx_fetch_client_redacts_error_result():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline with token=sk-secret", request=request)
+
+    client = HttpxFetchClient(cache=MemoryCache(), transport=httpx.MockTransport(handler))
+    result = await client.fetch("https://example.com")
+
+    assert result.error == "offline with token=[REDACTED]"
+    assert "sk-secret" not in result.error
 
 
 @pytest.mark.asyncio

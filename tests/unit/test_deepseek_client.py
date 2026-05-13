@@ -106,10 +106,38 @@ async def test_deepseek_client_raises_for_invalid_structured_output():
 
 
 @pytest.mark.asyncio
-async def test_deepseek_client_raises_for_empty_content():
-    fake = FakeOpenAIClient(["   "])
-    with pytest.raises(LLMOutputError, match="empty content"):
-        await _client(fake).invoke(prompt="Hi", model_role="light")
+async def test_deepseek_client_retries_empty_content():
+    fake = FakeOpenAIClient(["   ", "hello"])
+    result = await _client(fake).invoke(prompt="Hi", model_role="light")
+
+    assert result == "hello"
+    assert len(fake.completions.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_uses_fallback_after_empty_content_retries():
+    fake = FakeOpenAIClient(["", " ", "fallback ok"])
+    result = await _client(fake).invoke(prompt="Hi", model_role="heavy")
+
+    assert result == "fallback ok"
+    assert [call["model"] for call in fake.completions.calls] == [
+        "deepseek-v4-pro",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_deepseek_client_empty_content_failure_is_sanitized():
+    fake = FakeOpenAIClient(["", " ", "\t", "\n"])
+
+    with pytest.raises(LLMOutputError) as exc_info:
+        await _client(fake).invoke(prompt="prompt with sk-secret", model_role="heavy")
+
+    message = str(exc_info.value)
+    assert "empty content" in message
+    assert "prompt with" not in message
+    assert "sk-secret" not in message
 
 
 @pytest.mark.asyncio
